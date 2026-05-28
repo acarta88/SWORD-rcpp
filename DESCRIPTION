@@ -4,7 +4,8 @@ Title: Support Vector Machine Weighted Oblique Random Decision Forests
 Version: 0.1.0
 Date: 2026-05-28
 Authors@R: c(
-    person("A.", "Carta",   role = c("aut", "cre"), email = "acarta88@yahoo.it"),
+    person("A.", "Carta",   role = c("aut", "cre"), email = "acarta88@yahoo.it",
+           comment = c(ORCID = "0000-0003-4077-1822")),
     person("L.", "Frigau",  role = "aut"))
 Description: Implements SWORD (Support vector machine Weighted Oblique Random
     Decision forests), a random forest of TORS (Tree Oblique for Regression
@@ -16,6 +17,11 @@ Description: Implements SWORD (Support vector machine Weighted Oblique Random
     Provides tree fitting (TORS), forest fitting (SWORD), prediction, and
     variable importance (VI_SWORD). Parallel tree fitting is supported via the
     'future'/'furrr' framework.
+    The TORS algorithm is described in Carta and Frigau (2025)
+    <doi:10.1007/s00180-025-01647-w>. The weighted SVM is based on
+    Yang, Song and Cao (2005) <doi:10.1109/IJCNN.2005.1555965> and the
+    'WeightSVM' package by Xu et al. (2024)
+    <doi:10.32614/CRAN.package.WeightSVM>.
 License: GPL-3
 Encoding: UTF-8
 Depends: R (>= 4.1.0)

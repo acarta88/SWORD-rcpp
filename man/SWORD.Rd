@@ -125,6 +125,20 @@ print(forest)
 forest2 <- SWORD(y ~ ., data = cbind(X, y = y), m = 10, verbose = FALSE)
 }
 }
+\references{
+Carta, A. and Frigau, L. (2025). Tree oblique for regression with weighted
+support vector machine. \emph{Computational Statistics}, \bold{40}, 5257--5291.
+\doi{10.1007/s00180-025-01647-w}
+
+Yang, X., Song, Q. and Cao, A. (2005). Weighted support vector machine for
+data classification. In \emph{Proceedings of the 2005 IEEE International
+Joint Conference on Neural Networks (IJCNN)}.
+\doi{10.1109/IJCNN.2005.1555965}
+
+Xu, T. et al. (2024). \emph{WeightSVM: Subject/Instance Weighted Support
+Vector Machines}. R package version 1.7-16.
+\doi{10.32614/CRAN.package.WeightSVM}
+}
 \seealso{
 \code{\link{TORS}}, \code{\link{predict.sword_flat}}, \code{\link{VI_SWORD}}
 }

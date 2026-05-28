@@ -29,3 +29,13 @@ algorithm with bias augmentation. Used internally by \code{\link{TORS}} and
 \code{\link{SWORD}} at each tree node to find the optimal oblique splitting
 hyperplane. Exposed for users who need direct access to the low-level solver.
 }
+\references{
+Yang, X., Song, Q. and Cao, A. (2005). Weighted support vector machine for
+data classification. In \emph{Proceedings of the 2005 IEEE International
+Joint Conference on Neural Networks (IJCNN)}.
+\doi{10.1109/IJCNN.2005.1555965}
+
+Xu, T. et al. (2024). \emph{WeightSVM: Subject/Instance Weighted Support
+Vector Machines}. R package version 1.7-16.
+\doi{10.32614/CRAN.package.WeightSVM}
+}
