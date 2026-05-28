@@ -1,0 +1,37 @@
+Package: SWORD
+Type: Package
+Title: Support Vector Machine Weighted Oblique Random Decision Forests
+Version: 0.1.0
+Date: 2026-05-28
+Authors@R: c(
+    person("A.", "Carta",   role = c("aut", "cre"), email = "acarta88@yahoo.it"),
+    person("L.", "Frigau",  role = "aut"))
+Description: Implements SWORD (Support vector machine Weighted Oblique Random
+    Decision forests), a random forest of TORS (Tree Oblique for Regression
+    with weighted SVM) oblique regression trees. At each internal node a
+    Weighted-SVM classifier with a linear kernel defines the oblique splitting
+    hyperplane as a sparse linear combination of predictors. The C++
+    coordinate-descent solver provides fast training. Variable importance is
+    computed via OIW-VI (Oblique Impurity-Weighted Variable Importance).
+    Provides tree fitting (TORS), forest fitting (SWORD), prediction, and
+    variable importance (VI_SWORD). Parallel tree fitting is supported via the
+    'future'/'furrr' framework.
+License: GPL-3
+Encoding: UTF-8
+Depends: R (>= 4.1.0)
+Imports:
+    Rcpp (>= 1.0.0),
+    infotheo,
+    furrr,
+    progressr
+LinkingTo: Rcpp
+Suggests:
+    future,
+    visNetwork,
+    microbenchmark,
+    knitr,
+    rmarkdown,
+    ggplot2,
+    MASS
+VignetteBuilder: knitr
+Config/roxygen2/version: 8.0.0

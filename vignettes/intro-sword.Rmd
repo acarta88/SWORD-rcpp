@@ -1,0 +1,495 @@
+---
+title: "Getting Started with SWORD"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting Started with SWORD}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse  = TRUE,
+  comment   = "#>",
+  fig.width = 6,
+  fig.height = 4,
+  out.width = "95%"
+)
+```
+
+## Overview
+
+**SWORD** (**S**upport vector machine **W**eighted **O**blique **R**andom
+**D**ecision forests) fits random forests of oblique regression trees.
+Each internal node uses a **Weighted-SVM** classifier with a linear kernel
+to define the oblique splitting hyperplane — a sparse linear combination of
+predictors — rather than a single axis-aligned threshold.
+
+The base learner is **TORS** (**T**ree **O**blique for **R**egression with
+weighted **S**VM), a single oblique regression tree introduced in
+Carta & Frigau (2025).  SWORD embeds TORS within a bootstrap aggregation
+framework, adding predictor subspacing and optional randomisation of the
+number of features per split to increase tree diversity.
+
+The package provides:
+
+* `TORS()` — fit a single TORS oblique regression tree.
+* `SWORD()` — fit a SWORD forest of TORS trees with bootstrap sampling and
+  out-of-bag (OOB) error estimation.
+* `predict()` — S3 method for both objects, with automatic encoding of factor
+  and character predictors.
+* `VI_SWORD()` — Oblique Impurity-Weighted Variable Importance (OIW-VI):
+  deviance reduction at each node, distributed among predictors proportionally
+  to their normalised absolute Weighted-SVM coefficients.
+* Plot helpers — OOB convergence, importance barplot, predicted-vs-observed
+  scatter, and partial dependence plots.
+
+---
+
+## Data
+
+We use the **Boston** housing dataset from the `MASS` package (506
+observations, 13 numeric predictors, response `medv` = median house value).
+The data are split 80/20 into training and test sets.
+
+```{r data}
+if (!requireNamespace("MASS", quietly = TRUE))
+  stop("Please install the MASS package: install.packages('MASS')")
+
+library(SWORD)
+data(Boston, package = "MASS")
+
+set.seed(42)
+n     <- nrow(Boston)
+train <- sample(n, floor(0.8 * n))
+test  <- setdiff(seq_len(n), train)
+
+X_train <- Boston[train, setdiff(names(Boston), "medv")]
+y_train <- Boston$medv[train]
+X_test  <- Boston[test,  setdiff(names(Boston), "medv")]
+y_test  <- Boston$medv[test]
+
+cat("Training set:", nrow(X_train), "obs |",
+    "Test set:", nrow(X_test), "obs\n")
+```
+
+---
+
+## Fitting a single TORS tree
+
+`TORS()` grows one SVM oblique rotation tree.  Key tuning parameters:
+
+| Parameter | Meaning | Default |
+|---|---|---|
+| `nmin` | minimum node size | 5 |
+| `cp` | complexity threshold for splitting | 0.01 |
+| `n_topCor` | top-correlated features fed to the SVM at each node | 2 |
+| `relation` | feature selection criterion: `"Pearson"` or `"MI"` | `"Pearson"` |
+| `Weight_Scheme` | observation weighting: `"scale"` or `"robust"` | `"scale"` |
+| `cost_C` | SVM cost C | 1 |
+
+```{r tors-fit}
+set.seed(1)
+tree <- TORS(X_train, y_train, nmin = 15, cp = 0.02)
+print(tree)
+```
+
+### Tree structure (text)
+
+`plot_tors_text()` prints the tree as an indented list of nodes.  Each
+internal node shows the oblique hyperplane equation (top-`k` largest
+coefficients); each leaf shows the predicted mean.
+
+```{r tors-text, fig.height=5}
+plot_tors_text(tree, top_k = 3)
+```
+
+### Tree structure (graph)
+
+`plot()` on a `tors_flat` object draws a base-R layout of the tree (node size
+proportional to the number of observations).  If the **visNetwork** package is
+installed it renders an interactive zoomable widget instead.
+
+```{r tors-plot}
+plot(tree)
+```
+
+### Effect of `cp` on tree size
+
+`cp` is a complexity threshold: a candidate split is accepted only if the
+relative deviance reduction exceeds `cp`.  Larger values lead to earlier
+stopping and shallower trees; `cp = 0` lets the tree grow until every node
+reaches `nmin`.
+
+```{r tors-cp}
+set.seed(1)
+t_deep     <- TORS(X_train, y_train, nmin = 10, cp = 0.000)
+t_moderate <- TORS(X_train, y_train, nmin = 10, cp = 0.010)
+t_shallow  <- TORS(X_train, y_train, nmin = 10, cp = 0.050)
+
+cp_tbl <- data.frame(
+  cp        = c(0.000, 0.010, 0.050),
+  n_nodes   = c(t_deep$n_nodes,     t_moderate$n_nodes,     t_shallow$n_nodes),
+  n_leaves  = c(sum(t_deep$is_leaf), sum(t_moderate$is_leaf), sum(t_shallow$is_leaf)),
+  max_depth = c(max(t_deep$depth),   max(t_moderate$depth),   max(t_shallow$depth))
+)
+print(cp_tbl, row.names = FALSE)
+```
+
+With `cp = 0` the tree grows until every node reaches `nmin`, producing the
+deepest structure; increasing `cp` results in more aggressive pruning and
+shallower trees.
+
+### Effect of `n_topCor` on split richness
+
+`n_topCor` controls how many top-correlated features are passed to the
+Weighted-SVM at each node.  Because TORS splits are always oblique (linear
+combinations of predictors), the minimum meaningful value is 2; larger values
+allow the SVM to combine more predictors into denser oblique hyperplanes.
+
+```{r tors-ntopcor}
+set.seed(1)
+t_nc2 <- TORS(X_train, y_train, nmin = 15, cp = 0.02, n_topCor = 2)
+t_nc4 <- TORS(X_train, y_train, nmin = 15, cp = 0.02, n_topCor = 4)
+
+cat("--- n_topCor = 2 (default, sparse oblique) ---\n")
+plot_tors_text(t_nc2, top_k = 2)
+cat("\n--- n_topCor = 4 (richer oblique splits) ---\n")
+plot_tors_text(t_nc4, top_k = 4)
+```
+
+With `n_topCor = 2` each split combines two predictors; with `n_topCor = 4`
+the Weighted-SVM can involve up to four predictors per split, producing denser
+oblique hyperplanes at the cost of higher per-node fitting time.
+
+---
+
+## Fitting a SWORD forest
+
+`SWORD()` fits a random forest of TORS trees with bootstrap sampling.
+Setting `OOB = TRUE` (the default) accumulates out-of-bag predictions at each
+iteration, which lets you monitor convergence without a separate validation set.
+
+```{r sword-fit}
+set.seed(42)
+forest <- SWORD(X_train, y_train,
+                m       = 50,
+                nmin    = 10,
+                cp      = 0.01,
+                OOB     = TRUE,
+                verbose = FALSE)
+print(forest)
+```
+
+---
+
+## OOB diagnostics
+
+### Convergence curve
+
+`plot(forest, which = "oob")` plots the OOB MSE as a function of the number
+of trees.  The dashed line marks the minimum; check that it has levelled off
+before using the forest for inference.
+
+```{r oob-convergence}
+plot(forest, which = "oob")
+```
+
+### OOB predicted vs. observed
+
+`plot_oob_fit()` plots the out-of-bag predictions against the true training
+responses.  Points on the identity line indicate perfect fit; the annotation
+reports RMSE, MAE, and R\eqn{^2}.
+
+```{r oob-scatter}
+plot_oob_fit(forest, y_train)
+```
+
+---
+
+## Prediction on the test set
+
+```{r predict}
+y_hat <- predict(forest, X_test)
+
+rmse <- sqrt(mean((y_hat - y_test)^2))
+mae  <- mean(abs(y_hat - y_test))
+r2   <- cor(y_hat, y_test)^2
+
+cat(sprintf("Test RMSE : %.3f\n", rmse))
+cat(sprintf("Test MAE  : %.3f\n", mae))
+cat(sprintf("Test R^2  : %.3f\n", r2))
+```
+
+The `predict()` method also accepts a `data.frame` that contains extra columns
+(e.g. the response), so you can pass the original data frame directly:
+
+```{r predict-full-df}
+y_hat2 <- predict(forest, Boston[test, ])  # medv column is silently dropped
+all.equal(y_hat, y_hat2)
+```
+
+---
+
+## Variable importance
+
+`VI_SWORD()` computes the **OIW-VI** (Oblique Impurity-Weighted Variable
+Importance): at each internal node, the deviance reduction is distributed
+among the predictors involved in the oblique split proportionally to their
+normalised absolute Weighted-SVM coefficients; these scores are then averaged
+across all trees.  `plot_vi_sword()` draws a horizontal barplot sorted by
+importance.
+
+```{r vi}
+vi <- VI_SWORD(forest)
+print(round(vi, 2))
+```
+
+```{r vi-plot}
+plot_vi_sword(forest, top_n = 13)
+```
+
+---
+
+## Partial dependence plots
+
+`pdp_sword()` computes the marginal effect of a single predictor by fixing it
+to a grid of values and averaging forest predictions over the full training set
+(Friedman 2001).  A rug of observed values is added by default.
+
+```{r pdp-2var, fig.height=4, fig.width=10, out.width="100%"}
+old_par <- par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
+pdp_sword(forest, X_train, "lstat", main = "PDP: lstat")
+pdp_sword(forest, X_train, "rm",    main = "PDP: rm")
+par(old_par)
+```
+
+Top-4 predictors in a 2x2 grid:
+
+```{r pdp-grid, fig.height=7, fig.width=10, out.width="100%"}
+top4 <- names(vi)[1:4]
+old_par <- par(mfrow = c(2, 2), mar = c(4, 4, 3, 1))
+for (v in top4)
+  pdp_sword(forest, X_train, v, main = paste("PDP:", v))
+par(old_par)
+```
+
+---
+
+## Parameter sensitivity in SWORD
+
+Four parameters most likely to affect predictive accuracy are `relation`,
+`Weight_Scheme`, `rf_var`, and `rand_ntopcor`.  In this section we fit
+compact forests (`m = 20`, `nmin = 10`, `cp = 0.01`) varying each parameter
+in turn and compare test-set RMSE on the same Boston hold-out.
+
+```{r params-helper, include=FALSE}
+rmse_f <- function(y, yhat) sqrt(mean((y - yhat)^2))
+p      <- ncol(X_train)
+```
+
+### Feature selection criterion: `relation`
+
+`relation` controls how the top-correlated features are identified at each
+node: `"Pearson"` uses the absolute Pearson correlation with the node
+residuals; `"MI"` uses mutual information, which can capture non-linear
+associations between each predictor and the response.
+
+```{r params-relation}
+set.seed(42)
+f_pearson <- SWORD(X_train, y_train, m = 20, nmin = 10, cp = 0.01,
+                   relation = "Pearson", verbose = FALSE)
+set.seed(42)
+f_mi      <- SWORD(X_train, y_train, m = 20, nmin = 10, cp = 0.01,
+                   relation = "MI",      verbose = FALSE)
+
+cat(sprintf("Pearson  — test RMSE: %.3f\n", rmse_f(y_test, predict(f_pearson, X_test))))
+cat(sprintf("MI       — test RMSE: %.3f\n", rmse_f(y_test, predict(f_mi,      X_test))))
+```
+
+Both criteria are competitive on continuous predictors; `"MI"` may offer an
+advantage when predictor–response associations are strongly non-linear.
+
+### Observation weighting: `Weight_Scheme`
+
+`Weight_Scheme` determines how observations are weighted when fitting the
+Weighted-SVM at each node.  Both schemes assign higher weight to observations
+whose response is far from the local centre, guiding the SVM to concentrate
+on the most informative thresholds.  The two formulas differ in how the
+centre and spread are estimated:
+
+\[
+w_i^{\text{scale}}  = \frac{|y_i - \bar{y}|}{s_y}, \qquad
+w_i^{\text{robust}} = \frac{|y_i - \text{median}(y)|}{\text{MAD}(y)}
+\]
+
+where \(s_y\) is the standard deviation and
+\(\text{MAD}(y) = \text{median}(|y_i - \text{median}(y)|)\).
+Because `"robust"` centres on the median and scales by the MAD rather than
+the mean and standard deviation, it is less influenced by extreme values in
+the response.
+
+```{r params-weight}
+set.seed(42)
+f_scale  <- SWORD(X_train, y_train, m = 20, nmin = 10, cp = 0.01,
+                  Weight_Scheme = "scale",  verbose = FALSE)
+set.seed(42)
+f_robust <- SWORD(X_train, y_train, m = 20, nmin = 10, cp = 0.01,
+                  Weight_Scheme = "robust", verbose = FALSE)
+
+cat(sprintf("scale    — test RMSE: %.3f\n", rmse_f(y_test, predict(f_scale,  X_test))))
+cat(sprintf("robust   — test RMSE: %.3f\n", rmse_f(y_test, predict(f_robust, X_test))))
+```
+
+`"robust"` is recommended when the training response contains outliers or
+extreme values that would inflate \(s_y\) and distort the `"scale"` weights.
+
+### Feature subsampling per split: `rf_var`
+
+`rf_var` sets how many predictors are randomly sub-sampled at each node
+before the top-`n_topCor` correlated ones are selected for the SVM.
+Reducing `rf_var` increases tree decorrelation — analogously to `mtry` in
+standard random forests.  Three common choices with `p = 13` predictors:
+
+```{r params-rfvar}
+set.seed(42)
+f_full <- SWORD(X_train, y_train, m = 20, nmin = 10, cp = 0.01,
+                rf_var = p,               verbose = FALSE)  # all predictors
+set.seed(42)
+f_half <- SWORD(X_train, y_train, m = 20, nmin = 10, cp = 0.01,
+                rf_var = floor(p / 2),    verbose = FALSE)  # half
+set.seed(42)
+f_sqrt <- SWORD(X_train, y_train, m = 20, nmin = 10, cp = 0.01,
+                rf_var = floor(sqrt(p)),  verbose = FALSE)  # sqrt rule
+
+cat(sprintf("rf_var = %2d (all)        — test RMSE: %.3f\n",
+            p,               rmse_f(y_test, predict(f_full, X_test))))
+cat(sprintf("rf_var = %2d (floor p/2)  — test RMSE: %.3f\n",
+            floor(p / 2),   rmse_f(y_test, predict(f_half, X_test))))
+cat(sprintf("rf_var = %2d (floor sqrt) — test RMSE: %.3f\n",
+            floor(sqrt(p)), rmse_f(y_test, predict(f_sqrt, X_test))))
+```
+
+Unlike axis-aligned forests, where reducing `mtry` decorrelates trees and
+often lowers test error, in SWORD a **larger candidate pool consistently
+improves accuracy**: allowing the Weighted-SVM to screen more predictors at
+each node leads to better oblique splits without sacrificing tree diversity
+(which is already provided by bootstrap sampling and the random-\eqn{\gamma}
+mechanism).  Restricting `rf_var` limits the quality of the oblique
+hyperplane and in practice tends to worsen RMSE.  The default
+(`rf_var = p`, all predictors) is therefore recommended.
+
+### Randomised top-feature cardinality: `rand_ntopcor`
+
+When `rand_ntopcor = TRUE` (the SWORD default) the number of top-correlated
+features passed to the SVM at each node is itself drawn at random from
+\eqn{\{2, \ldots, \texttt{rf\_var}\}}, introducing an extra source of tree
+diversity beyond bootstrap sampling.  Setting it to `FALSE` fixes that count
+at `n_topCor` for every split.
+
+```{r params-rand}
+set.seed(42)
+f_rnd_t <- SWORD(X_train, y_train, m = 20, nmin = 10, cp = 0.01,
+                 rand_ntopcor = TRUE,  verbose = FALSE)
+set.seed(42)
+f_rnd_f <- SWORD(X_train, y_train, m = 20, nmin = 10, cp = 0.01,
+                 rand_ntopcor = FALSE, verbose = FALSE)
+
+cat(sprintf("rand_ntopcor = TRUE  — test RMSE: %.3f\n",
+            rmse_f(y_test, predict(f_rnd_t, X_test))))
+cat(sprintf("rand_ntopcor = FALSE — test RMSE: %.3f\n",
+            rmse_f(y_test, predict(f_rnd_f, X_test))))
+```
+
+Randomisation usually helps when `m` is large enough; for very small forests
+it can occasionally hurt by introducing excess variance.
+
+### Summary comparison
+
+```{r params-table, echo=FALSE}
+tbl <- data.frame(
+  Parameter = c(
+    "relation", "relation",
+    "Weight_Scheme", "Weight_Scheme",
+    "rf_var", "rf_var", "rf_var",
+    "rand_ntopcor", "rand_ntopcor"
+  ),
+  Value = c(
+    "Pearson (default)", "MI",
+    "scale (default)", "robust",
+    paste0("p = ", p, " — all (default)"),
+    paste0("floor(p/2) = ", floor(p / 2)),
+    paste0("floor(sqrt(p)) = ", floor(sqrt(p))),
+    "TRUE (default)", "FALSE"
+  ),
+  Test_RMSE = round(c(
+    rmse_f(y_test, predict(f_pearson, X_test)),
+    rmse_f(y_test, predict(f_mi,      X_test)),
+    rmse_f(y_test, predict(f_scale,   X_test)),
+    rmse_f(y_test, predict(f_robust,  X_test)),
+    rmse_f(y_test, predict(f_full,    X_test)),
+    rmse_f(y_test, predict(f_half,    X_test)),
+    rmse_f(y_test, predict(f_sqrt,    X_test)),
+    rmse_f(y_test, predict(f_rnd_t,   X_test)),
+    rmse_f(y_test, predict(f_rnd_f,   X_test))
+  ), 3)
+)
+print(tbl, row.names = FALSE)
+```
+
+---
+
+## Categorical and character predictors
+
+SWORD handles factor and character columns automatically: they are
+one-hot-encoded internally, new factor levels in `predict()` are mapped to
+all-zero dummies, and `VI_SWORD()` sums dummy-column importances back to the
+original variable name.
+
+```{r categorical, eval=FALSE}
+data(diamonds, package = "ggplot2")
+set.seed(7)
+idx   <- sample(nrow(diamonds), 2000)
+X_dia <- diamonds[idx, c("carat","cut","color","clarity",
+                          "depth","table","x","y","z")]
+y_dia <- diamonds$price[idx]
+
+forest_dia <- SWORD(X_dia, y_dia, m = 50, OOB = TRUE, verbose = FALSE)
+print(forest_dia)
+
+# VI grouped by original variable (not by dummy column)
+VI_SWORD(forest_dia)
+
+# PDP for an ordered factor
+pdp_sword(forest_dia, X_dia, "cut")
+```
+
+---
+
+## Formula interface
+
+Both `TORS()` and `SWORD()` accept an R formula with a `data` argument:
+
+```{r formula, eval=FALSE}
+df <- cbind(X_train, medv = y_train)
+
+tree2   <- TORS(medv ~ ., data = df, nmin = 15, cp = 0.02)
+forest2 <- SWORD(medv ~ ., data = df, m = 50, verbose = FALSE)
+predict(forest2, Boston[test, ])
+```
+
+---
+
+## Summary
+
+| Task | Function |
+|---|---|
+| Fit one tree | `TORS(X, y)` |
+| Fit a forest | `SWORD(X, y, m = 100)` |
+| Predict | `predict(forest, newdata)` |
+| OOB convergence | `plot(forest, which = "oob")` |
+| OOB scatter | `plot_oob_fit(forest, y)` |
+| OIW-VI (variable importance) | `VI_SWORD(forest)` / `plot_vi_sword(forest)` |
+| Partial dependence | `pdp_sword(forest, X, "varname")` |
+| Tree text print | `plot_tors_text(tree)` |
+| Tree graph | `plot(tree)` |

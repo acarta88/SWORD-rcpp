@@ -1,0 +1,19 @@
+﻿# R
+.Rhistory
+.RData
+.Rproj.user
+*.Rproj
+
+# Build artifacts
+src/*.o
+src/*.so
+src/*.dll
+*.tar.gz
+
+# Generated docs / Meta
+doc/
+Meta/
+bench/
+
+# R check
+*.Rcheck/
