@@ -5759,7 +5759,7 @@ parameters:</p>
 <div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1</span>)</span>
 <span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>tree <span class="ot">&lt;-</span> <span class="fu">TORS</span>(X_train, y_train, <span class="at">nmin =</span> <span class="dv">15</span>, <span class="at">cp =</span> <span class="fl">0.02</span>)</span>
 <span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a><span class="fu">print</span>(tree)</span>
-<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a><span class="co">#&gt; ---------- TORS (Oblique Regression Tree)</span></span>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a><span class="co">#&gt; ---------- TORS (Tree Oblique for Regression with weighted SVM)</span></span>
 <span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a><span class="co">#&gt; </span></span>
 <span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a><span class="co">#&gt;            N observations: 404</span></span>
 <span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a><span class="co">#&gt;              N predictors: 13</span></span>
@@ -5848,44 +5848,44 @@ trees.</p>
 <div id="effect-of-n_topcor-on-split-richness" class="section level3">
 <h3>Effect of <code>n_topCor</code> on split richness</h3>
 <p><code>n_topCor</code> controls how many top-correlated features are
-passed to the Weighted-SVM at each node. With <code>n_topCor = 1</code>
-each split reduces to a near axis-aligned threshold (only one predictor
-enters the SVM); larger values allow the SVM to combine more predictors
-into a genuinely oblique hyperplane.</p>
+passed to the Weighted-SVM at each node. Because TORS splits are always
+oblique (linear combinations of predictors), the minimum meaningful
+value is 2; larger values allow the SVM to combine more predictors into
+denser oblique hyperplanes.</p>
 <div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1</span>)</span>
-<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a>t_nc1 <span class="ot">&lt;-</span> <span class="fu">TORS</span>(X_train, y_train, <span class="at">nmin =</span> <span class="dv">15</span>, <span class="at">cp =</span> <span class="fl">0.02</span>, <span class="at">n_topCor =</span> <span class="dv">1</span>)</span>
+<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a>t_nc2 <span class="ot">&lt;-</span> <span class="fu">TORS</span>(X_train, y_train, <span class="at">nmin =</span> <span class="dv">15</span>, <span class="at">cp =</span> <span class="fl">0.02</span>, <span class="at">n_topCor =</span> <span class="dv">2</span>)</span>
 <span id="cb6-3"><a href="#cb6-3" tabindex="-1"></a>t_nc4 <span class="ot">&lt;-</span> <span class="fu">TORS</span>(X_train, y_train, <span class="at">nmin =</span> <span class="dv">15</span>, <span class="at">cp =</span> <span class="fl">0.02</span>, <span class="at">n_topCor =</span> <span class="dv">4</span>)</span>
 <span id="cb6-4"><a href="#cb6-4" tabindex="-1"></a></span>
-<span id="cb6-5"><a href="#cb6-5" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;--- n_topCor = 1 (near axis-aligned) ---</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb6-6"><a href="#cb6-6" tabindex="-1"></a><span class="co">#&gt; --- n_topCor = 1 (near axis-aligned) ---</span></span>
-<span id="cb6-7"><a href="#cb6-7" tabindex="-1"></a><span class="fu">plot_tors_text</span>(t_nc1, <span class="at">top_k =</span> <span class="dv">2</span>)</span>
+<span id="cb6-5"><a href="#cb6-5" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;--- n_topCor = 2 (default, sparse oblique) ---</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb6-6"><a href="#cb6-6" tabindex="-1"></a><span class="co">#&gt; --- n_topCor = 2 (default, sparse oblique) ---</span></span>
+<span id="cb6-7"><a href="#cb6-7" tabindex="-1"></a><span class="fu">plot_tors_text</span>(t_nc2, <span class="at">top_k =</span> <span class="dv">2</span>)</span>
 <span id="cb6-8"><a href="#cb6-8" tabindex="-1"></a><span class="co">#&gt; TORS — text representation</span></span>
 <span id="cb6-9"><a href="#cb6-9" tabindex="-1"></a><span class="co">#&gt; ------------------------------------------------------------ </span></span>
-<span id="cb6-10"><a href="#cb6-10" tabindex="-1"></a><span class="co">#&gt; Node 1  n=404  [ 0.309·lstat + 3.423 = 0 ]</span></span>
-<span id="cb6-11"><a href="#cb6-11" tabindex="-1"></a><span class="co">#&gt; L-- Node 2  n=193  [ - 2.378·rm - 15.902 = 0 ]</span></span>
-<span id="cb6-12"><a href="#cb6-12" tabindex="-1"></a><span class="co">#&gt;   L-- Node 3  n=73  [ - 2.35·rm - 17.336 = 0 ]</span></span>
-<span id="cb6-13"><a href="#cb6-13" tabindex="-1"></a><span class="co">#&gt;     L-- Node 4  n=25  [ 0.606·ptratio + 9.909 = 0 ]</span></span>
-<span id="cb6-14"><a href="#cb6-14" tabindex="-1"></a><span class="co">#&gt;       L-- Leaf  n=11  mean=47.4545</span></span>
-<span id="cb6-15"><a href="#cb6-15" tabindex="-1"></a><span class="co">#&gt;       R-- Leaf  n=14  mean=39.1071</span></span>
-<span id="cb6-16"><a href="#cb6-16" tabindex="-1"></a><span class="co">#&gt;     R-- Node 7  n=48  [ - 6.452·rm - 44.832 = 0 ]</span></span>
-<span id="cb6-17"><a href="#cb6-17" tabindex="-1"></a><span class="co">#&gt;       L-- Leaf  n=31  mean=33.5710</span></span>
-<span id="cb6-18"><a href="#cb6-18" tabindex="-1"></a><span class="co">#&gt;       R-- Leaf  n=17  mean=28.6000</span></span>
-<span id="cb6-19"><a href="#cb6-19" tabindex="-1"></a><span class="co">#&gt;   R-- Node 10  n=120  [ 0.447·lstat + 3.461 = 0 ]</span></span>
-<span id="cb6-20"><a href="#cb6-20" tabindex="-1"></a><span class="co">#&gt;     L-- Leaf  n=55  mean=25.4927</span></span>
-<span id="cb6-21"><a href="#cb6-21" tabindex="-1"></a><span class="co">#&gt;     R-- Node 12  n=65  [ - 7.489·rm - 45.554 = 0 ]</span></span>
-<span id="cb6-22"><a href="#cb6-22" tabindex="-1"></a><span class="co">#&gt;       L-- Leaf  n=36  mean=24.0000</span></span>
-<span id="cb6-23"><a href="#cb6-23" tabindex="-1"></a><span class="co">#&gt;       R-- Leaf  n=29  mean=19.6345</span></span>
-<span id="cb6-24"><a href="#cb6-24" tabindex="-1"></a><span class="co">#&gt; R-- Node 15  n=211  [ 0.317·lstat + 5.492 = 0 ]</span></span>
-<span id="cb6-25"><a href="#cb6-25" tabindex="-1"></a><span class="co">#&gt;   L-- Node 16  n=121  [ 0.597·lstat + 8.636 = 0 ]</span></span>
-<span id="cb6-26"><a href="#cb6-26" tabindex="-1"></a><span class="co">#&gt;     L-- Node 17  n=73  [ - 1.034·rm - 6.215 = 0 ]</span></span>
-<span id="cb6-27"><a href="#cb6-27" tabindex="-1"></a><span class="co">#&gt;       L-- Leaf  n=36  mean=21.3444</span></span>
-<span id="cb6-28"><a href="#cb6-28" tabindex="-1"></a><span class="co">#&gt;       R-- Leaf  n=37  mean=20.2135</span></span>
-<span id="cb6-29"><a href="#cb6-29" tabindex="-1"></a><span class="co">#&gt;     R-- Leaf  n=48  mean=17.2750</span></span>
-<span id="cb6-30"><a href="#cb6-30" tabindex="-1"></a><span class="co">#&gt;   R-- Node 21  n=90  [ 0.129·crim + 1.041 = 0 ]</span></span>
-<span id="cb6-31"><a href="#cb6-31" tabindex="-1"></a><span class="co">#&gt;     L-- Leaf  n=47  mean=15.6277</span></span>
-<span id="cb6-32"><a href="#cb6-32" tabindex="-1"></a><span class="co">#&gt;     R-- Node 23  n=43  [ 0.276·lstat + 6.385 = 0 ]</span></span>
-<span id="cb6-33"><a href="#cb6-33" tabindex="-1"></a><span class="co">#&gt;       L-- Leaf  n=21  mean=13.4667</span></span>
-<span id="cb6-34"><a href="#cb6-34" tabindex="-1"></a><span class="co">#&gt;       R-- Leaf  n=22  mean=10.0045</span></span>
+<span id="cb6-10"><a href="#cb6-10" tabindex="-1"></a><span class="co">#&gt; Node 1  n=404  [ - 0.957·rm + 0.282·lstat - 2.837 = 0 ]</span></span>
+<span id="cb6-11"><a href="#cb6-11" tabindex="-1"></a><span class="co">#&gt; L-- Node 2  n=193  [ - 1.636·rm + 0.296·lstat - 8.985 = 0 ]</span></span>
+<span id="cb6-12"><a href="#cb6-12" tabindex="-1"></a><span class="co">#&gt;   L-- Node 3  n=77  [ - 2.047·rm + 0.226·dis - 13.886 = 0 ]</span></span>
+<span id="cb6-13"><a href="#cb6-13" tabindex="-1"></a><span class="co">#&gt;     L-- Node 4  n=30  [ 0.262·ptratio + 0.683·lstat + 7.896 = 0 ]</span></span>
+<span id="cb6-14"><a href="#cb6-14" tabindex="-1"></a><span class="co">#&gt;       L-- Leaf  n=18  mean=45.4833</span></span>
+<span id="cb6-15"><a href="#cb6-15" tabindex="-1"></a><span class="co">#&gt;       R-- Leaf  n=12  mean=35.8583</span></span>
+<span id="cb6-16"><a href="#cb6-16" tabindex="-1"></a><span class="co">#&gt;     R-- Node 7  n=47  [ - 5.578·rm + 1.041·lstat - 33.09 = 0 ]</span></span>
+<span id="cb6-17"><a href="#cb6-17" tabindex="-1"></a><span class="co">#&gt;       L-- Leaf  n=26  mean=34.4731</span></span>
+<span id="cb6-18"><a href="#cb6-18" tabindex="-1"></a><span class="co">#&gt;       R-- Leaf  n=21  mean=27.4952</span></span>
+<span id="cb6-19"><a href="#cb6-19" tabindex="-1"></a><span class="co">#&gt;   R-- Node 10  n=116  [ 0.321·dis - 0.019·rad + 0.978 = 0 ]</span></span>
+<span id="cb6-20"><a href="#cb6-20" tabindex="-1"></a><span class="co">#&gt;     L-- Node 11  n=35  [ 1.117·dis + 0.307·lstat + 5.236 = 0 ]</span></span>
+<span id="cb6-21"><a href="#cb6-21" tabindex="-1"></a><span class="co">#&gt;       L-- Leaf  n=7  mean=29.8000</span></span>
+<span id="cb6-22"><a href="#cb6-22" tabindex="-1"></a><span class="co">#&gt;       R-- Leaf  n=28  mean=23.9643</span></span>
+<span id="cb6-23"><a href="#cb6-23" tabindex="-1"></a><span class="co">#&gt;     R-- Leaf  n=81  mean=22.9605</span></span>
+<span id="cb6-24"><a href="#cb6-24" tabindex="-1"></a><span class="co">#&gt; R-- Node 15  n=211  [ 0.085·crim + 0.267·lstat + 5.252 = 0 ]</span></span>
+<span id="cb6-25"><a href="#cb6-25" tabindex="-1"></a><span class="co">#&gt;   L-- Node 16  n=131  [ - 0.009·black + 0.430·lstat + 3.32 = 0 ]</span></span>
+<span id="cb6-26"><a href="#cb6-26" tabindex="-1"></a><span class="co">#&gt;     L-- Node 17  n=82  [ 0.529·dis + 0.254·ptratio + 6.816 = 0 ]</span></span>
+<span id="cb6-27"><a href="#cb6-27" tabindex="-1"></a><span class="co">#&gt;       L-- Leaf  n=56  mean=20.9036</span></span>
+<span id="cb6-28"><a href="#cb6-28" tabindex="-1"></a><span class="co">#&gt;       R-- Leaf  n=26  mean=19.0615</span></span>
+<span id="cb6-29"><a href="#cb6-29" tabindex="-1"></a><span class="co">#&gt;     R-- Leaf  n=49  mean=17.3367</span></span>
+<span id="cb6-30"><a href="#cb6-30" tabindex="-1"></a><span class="co">#&gt;   R-- Node 21  n=80  [ 0.013·crim + 0.007·tax + 4.194 = 0 ]</span></span>
+<span id="cb6-31"><a href="#cb6-31" tabindex="-1"></a><span class="co">#&gt;     L-- Leaf  n=20  mean=15.5300</span></span>
+<span id="cb6-32"><a href="#cb6-32" tabindex="-1"></a><span class="co">#&gt;     R-- Node 23  n=60  [ 5.951·nox + 0.270·lstat + 10.225 = 0 ]</span></span>
+<span id="cb6-33"><a href="#cb6-33" tabindex="-1"></a><span class="co">#&gt;       L-- Leaf  n=33  mean=13.8242</span></span>
+<span id="cb6-34"><a href="#cb6-34" tabindex="-1"></a><span class="co">#&gt;       R-- Leaf  n=27  mean=10.0074</span></span>
 <span id="cb6-35"><a href="#cb6-35" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">--- n_topCor = 4 (richer oblique splits) ---</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
 <span id="cb6-36"><a href="#cb6-36" tabindex="-1"></a><span class="co">#&gt; </span></span>
 <span id="cb6-37"><a href="#cb6-37" tabindex="-1"></a><span class="co">#&gt; --- n_topCor = 4 (richer oblique splits) ---</span></span>
@@ -5913,10 +5913,10 @@ into a genuinely oblique hyperplane.</p>
 <span id="cb6-59"><a href="#cb6-59" tabindex="-1"></a><span class="co">#&gt;   R-- Node 19  n=91  [ 0.039·crim - 0.340·dis + 0.009·tax + 0.237·lstat + 10.901 = 0 ]</span></span>
 <span id="cb6-60"><a href="#cb6-60" tabindex="-1"></a><span class="co">#&gt;     L-- Leaf  n=54  mean=15.0241</span></span>
 <span id="cb6-61"><a href="#cb6-61" tabindex="-1"></a><span class="co">#&gt;     R-- Leaf  n=37  mean=10.5054</span></span></code></pre></div>
-<p>With <code>n_topCor = 1</code> each split equation shows only one
-predictor; with <code>n_topCor = 4</code> the Weighted-SVM can combine
-up to four predictors per split, producing denser oblique
-hyperplanes.</p>
+<p>With <code>n_topCor = 2</code> each split combines two predictors;
+with <code>n_topCor = 4</code> the Weighted-SVM can involve up to four
+predictors per split, producing denser oblique hyperplanes at the cost
+of higher per-node fitting time.</p>
 <hr />
 </div>
 </div>
@@ -5934,7 +5934,7 @@ monitor convergence without a separate validation set.</p>
 <span id="cb7-6"><a href="#cb7-6" tabindex="-1"></a>                <span class="at">OOB     =</span> <span class="cn">TRUE</span>,</span>
 <span id="cb7-7"><a href="#cb7-7" tabindex="-1"></a>                <span class="at">verbose =</span> <span class="cn">FALSE</span>)</span>
 <span id="cb7-8"><a href="#cb7-8" tabindex="-1"></a><span class="fu">print</span>(forest)</span>
-<span id="cb7-9"><a href="#cb7-9" tabindex="-1"></a><span class="co">#&gt; ---------- SWORD (Oblique Random Regression Forest)</span></span>
+<span id="cb7-9"><a href="#cb7-9" tabindex="-1"></a><span class="co">#&gt; ---------- SWORD (Support vector machine Weighted Oblique Random Decision forest)</span></span>
 <span id="cb7-10"><a href="#cb7-10" tabindex="-1"></a><span class="co">#&gt; </span></span>
 <span id="cb7-11"><a href="#cb7-11" tabindex="-1"></a><span class="co">#&gt;            N observations: 404</span></span>
 <span id="cb7-12"><a href="#cb7-12" tabindex="-1"></a><span class="co">#&gt;              N predictors: 13</span></span>
@@ -6066,10 +6066,20 @@ associations are strongly non-linear.</p>
 <div id="observation-weighting-weight_scheme" class="section level3">
 <h3>Observation weighting: <code>Weight_Scheme</code></h3>
 <p><code>Weight_Scheme</code> determines how observations are weighted
-when fitting the Weighted-SVM at each node. <code>&quot;scale&quot;</code> weights
-by the inverse of the local response standard deviation;
-<code>&quot;robust&quot;</code> replaces the standard deviation with a robustified
-estimate less sensitive to outliers.</p>
+when fitting the Weighted-SVM at each node. Both schemes assign higher
+weight to observations whose response is far from the local centre,
+guiding the SVM to concentrate on the most informative thresholds. The
+two formulas differ in how the centre and spread are estimated:</p>
+<p><span class="math display">\[
+w_i^{\text{scale}}  = \frac{|y_i - \bar{y}|}{s_y}, \qquad
+w_i^{\text{robust}} = \frac{|y_i - \text{median}(y)|}{\text{MAD}(y)}
+\]</span></p>
+<p>where <span class="math inline">\(s_y\)</span> is the standard
+deviation and <span class="math inline">\(\text{MAD}(y) =
+\text{median}(|y_i - \text{median}(y)|)\)</span>. Because
+<code>&quot;robust&quot;</code> centres on the median and scales by the MAD rather
+than the mean and standard deviation, it is less influenced by extreme
+values in the response.</p>
 <div class="sourceCode" id="cb19"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">42</span>)</span>
 <span id="cb19-2"><a href="#cb19-2" tabindex="-1"></a>f_scale  <span class="ot">&lt;-</span> <span class="fu">SWORD</span>(X_train, y_train, <span class="at">m =</span> <span class="dv">20</span>, <span class="at">nmin =</span> <span class="dv">10</span>, <span class="at">cp =</span> <span class="fl">0.01</span>,</span>
 <span id="cb19-3"><a href="#cb19-3" tabindex="-1"></a>                  <span class="at">Weight_Scheme =</span> <span class="st">&quot;scale&quot;</span>,  <span class="at">verbose =</span> <span class="cn">FALSE</span>)</span>
@@ -6082,7 +6092,8 @@ estimate less sensitive to outliers.</p>
 <span id="cb19-10"><a href="#cb19-10" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;robust   — test RMSE: %.3f</span><span class="sc">\n</span><span class="st">&quot;</span>, <span class="fu">rmse_f</span>(y_test, <span class="fu">predict</span>(f_robust, X_test))))</span>
 <span id="cb19-11"><a href="#cb19-11" tabindex="-1"></a><span class="co">#&gt; robust   — test RMSE: 3.596</span></span></code></pre></div>
 <p><code>&quot;robust&quot;</code> is recommended when the training response
-contains outliers or extreme values.</p>
+contains outliers or extreme values that would inflate <span class="math inline">\(s_y\)</span> and distort the <code>&quot;scale&quot;</code>
+weights.</p>
 </div>
 <div id="feature-subsampling-per-split-rf_var" class="section level3">
 <h3>Feature subsampling per split: <code>rf_var</code></h3>
@@ -6110,9 +6121,15 @@ forests. Three common choices with <code>p = 13</code> predictors:</p>
 <span id="cb20-17"><a href="#cb20-17" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;rf_var = %2d (floor sqrt) — test RMSE: %.3f</span><span class="sc">\n</span><span class="st">&quot;</span>,</span>
 <span id="cb20-18"><a href="#cb20-18" tabindex="-1"></a>            <span class="fu">floor</span>(<span class="fu">sqrt</span>(p)), <span class="fu">rmse_f</span>(y_test, <span class="fu">predict</span>(f_sqrt, X_test))))</span>
 <span id="cb20-19"><a href="#cb20-19" tabindex="-1"></a><span class="co">#&gt; rf_var =  3 (floor sqrt) — test RMSE: 4.416</span></span></code></pre></div>
-<p>When <code>p</code> is small the differences tend to be modest; with
-larger predictor sets, reducing <code>rf_var</code> can noticeably
-decrease test error by diversifying the trees.</p>
+<p>Unlike axis-aligned forests, where reducing <code>mtry</code>
+decorrelates trees and often lowers test error, in SWORD a
+<strong>larger candidate pool consistently improves accuracy</strong>:
+allowing the Weighted-SVM to screen more predictors at each node leads
+to better oblique splits without sacrificing tree diversity (which is
+already provided by bootstrap sampling and the random- mechanism).
+Restricting <code>rf_var</code> limits the quality of the oblique
+hyperplane and in practice tends to worsen RMSE. The default
+(<code>rf_var = p</code>, all predictors) is therefore recommended.</p>
 </div>
 <div id="randomised-top-feature-cardinality-rand_ntopcor" class="section level3">
 <h3>Randomised top-feature cardinality: <code>rand_ntopcor</code></h3>
@@ -6240,6 +6257,18 @@ with a <code>data</code> argument:</p>
 </tr>
 </tbody>
 </table>
+<hr />
+</div>
+<div id="references" class="section level2">
+<h2>References</h2>
+<p>Carta, A. and Frigau, L. (2025). Tree oblique for regression with
+weighted support vector machine. <em>Computational Statistics</em>,
+<strong>40</strong>, 5257–5291. <a href="https://doi.org/10.1007/s00180-025-01647-w" class="uri">https://doi.org/10.1007/s00180-025-01647-w</a></p>
+<p>Yang, X., Song, Q. and Cao, A. (2005). Weighted support vector
+machine for data classification. In <em>Proceedings of the 2005 IEEE
+International Joint Conference on Neural Networks (IJCNN)</em>. <a href="https://doi.org/10.1109/IJCNN.2005.1555965" class="uri">https://doi.org/10.1109/IJCNN.2005.1555965</a></p>
+<p>Xu, T. et al. (2024). <em>WeightSVM: Subject/Instance Weighted
+Support Vector Machines</em>. R package version 1.7-16. <a href="https://doi.org/10.32614/CRAN.package.WeightSVM" class="uri">https://doi.org/10.32614/CRAN.package.WeightSVM</a></p>
 </div>
 
 

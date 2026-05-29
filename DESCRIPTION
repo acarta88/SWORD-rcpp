@@ -26,18 +26,19 @@ License: GPL-3
 Encoding: UTF-8
 Depends: R (>= 4.1.0)
 Imports:
-    Rcpp (>= 1.0.0),
-    infotheo,
-    furrr,
-    progressr
+    Rcpp (>= 1.0.0)
 LinkingTo: Rcpp
 Suggests:
+    infotheo,
+    furrr,
+    progressr,
     future,
     visNetwork,
     microbenchmark,
     knitr,
     rmarkdown,
     ggplot2,
-    MASS
+    MASS,
+    testthat (>= 3.0.0)
 VignetteBuilder: knitr
 Config/roxygen2/version: 8.0.0

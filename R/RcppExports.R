@@ -12,7 +12,16 @@
 #'
 #' @return A named list with elements \code{w} (primal weights, length p) and
 #'   \code{b} (scalar bias); decision = \code{w^T x_scaled + b}.
-#' @export
+#' @keywords internal
+#' @references
+#' Yang, X., Song, Q. and Cao, A. (2005). Weighted support vector machine for
+#' data classification. In \emph{Proceedings of the 2005 IEEE International
+#' Joint Conference on Neural Networks (IJCNN)}.
+#' \doi{10.1109/IJCNN.2005.1555965}
+#'
+#' Xu, T. et al. (2024). \emph{WeightSVM: Subject/Instance Weighted Support
+#' Vector Machines}. R package version 1.7-16.
+#' \doi{10.32614/CRAN.package.WeightSVM}
 wsvm_cd_cpp <- function(x, y_bin, w_obs, C = 1.0, max_iter = 5000L, tol = 1e-3) {
     .Call(`_SWORD_wsvm_cd_cpp`, x, y_bin, w_obs, C, max_iter, tol)
 }

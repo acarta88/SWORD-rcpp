@@ -34,6 +34,7 @@ using namespace Rcpp;
 //'
 //' @return A named list with elements \code{w} (primal weights, length p) and
 //'   \code{b} (scalar bias); decision = \code{w^T x_scaled + b}.
+//' @keywords internal
 //' @references
 //' Yang, X., Song, Q. and Cao, A. (2005). Weighted support vector machine for
 //' data classification. In \emph{Proceedings of the 2005 IEEE International
@@ -43,7 +44,6 @@ using namespace Rcpp;
 //' Xu, T. et al. (2024). \emph{WeightSVM: Subject/Instance Weighted Support
 //' Vector Machines}. R package version 1.7-16.
 //' \doi{10.32614/CRAN.package.WeightSVM}
-//' @export
 // [[Rcpp::export]]
 List wsvm_cd_cpp(NumericMatrix x,
                  IntegerVector y_bin,

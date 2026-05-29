@@ -243,6 +243,9 @@ NULL
 
   } else {  # MI
 
+    if (!requireNamespace("infotheo", quietly = TRUE))
+      stop("Package 'infotheo' is required for relation = 'MI'. ",
+           "Install with: install.packages('infotheo')")
     disc_x <- infotheo::discretize(non_const)
     disc_y <- infotheo::discretize(data.frame(y))
     mi_scores <- vapply(seq_len(ncol(disc_x)), function(i)
@@ -628,7 +631,9 @@ TORS <- function(Covariates, y = NULL,
 #' @param data         data.frame; required when \code{Covariates} is a formula.
 #' @param nmin         minimum node size (default 5).
 #' @param minleaf      minimum leaf size (default 2).
-#' @param cp           complexity parameter (default 0).
+#' @param cp           complexity parameter (default 0). Unlike \code{\link{TORS}},
+#'   forests use \code{cp = 0} (full trees) by design: bootstrap sampling provides
+#'   regularisation and unpruned trees maximise diversity.
 #' @param n_perc       quantile thresholds per split (default 1).
 #' @param n_topCor     top-correlated features per split (default 2).
 #' @param m            number of trees (default 10).
@@ -809,6 +814,13 @@ SWORD <- function(
   # PARALLEL branch
   # ---------------------------------------------------------------------------
   if (parallel) {
+
+    if (!requireNamespace("furrr", quietly = TRUE))
+      stop("Package 'furrr' is required for parallel fitting. ",
+           "Install with: install.packages('furrr')")
+    if (!requireNamespace("progressr", quietly = TRUE))
+      stop("Package 'progressr' is required for parallel fitting. ",
+           "Install with: install.packages('progressr')")
 
     if (chunk) {
       if (is.null(n_chunks)) n_chunks <- ceiling(m / n_workers)
