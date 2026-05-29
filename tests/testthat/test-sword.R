@@ -37,6 +37,15 @@ test_that("SWORD formula interface works", {
   expect_length(preds, nrow(df))
 })
 
+test_that("predict.sword_flat works with a single-row newdata (regression: rowMeans on vector)", {
+  forest <- SWORD(X, y, m = 5, OOB = FALSE, verbose = FALSE)
+  p1 <- predict(forest, X[1L, , drop = FALSE])
+  pn <- predict(forest, X)
+  expect_length(p1, 1L)
+  expect_true(is.finite(p1))
+  expect_equal(p1, pn[[1L]])   # consistent with the full predict
+})
+
 test_that("SWORD with nu-classification runs without error", {
   forest <- SWORD(X, y, m = 3, OOB = FALSE, verbose = FALSE,
                   type_of_svm = "nu-classification", cost_nu = 0.5)

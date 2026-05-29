@@ -1221,7 +1221,9 @@ predict.sword_flat <- function(object, newdata, ...) {
   pred_mat <- vapply(object$trees,
                      function(tree) predict(tree, newdata),
                      numeric(nrow(newdata)))
-  rowMeans(pred_mat)
+  # vapply returns a vector when nrow(newdata)==1; force to matrix so
+  # rowMeans always receives a 2-D array.
+  rowMeans(matrix(pred_mat, nrow = nrow(newdata)))
 }
 
 #' @rdname SWORD
