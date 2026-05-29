@@ -50,7 +50,9 @@ formula interface.}
 
 \item{minleaf}{minimum leaf size (default 2).}
 
-\item{cp}{complexity parameter (default 0).}
+\item{cp}{complexity parameter (default 0). Unlike \code{\link{TORS}},
+forests use \code{cp = 0} (full trees) by design: bootstrap sampling provides
+regularisation and unpruned trees maximise diversity.}
 
 \item{n_perc}{quantile thresholds per split (default 1).}
 
@@ -86,7 +88,10 @@ formula interface.}
 
 \item{n_chunks}{number of chunks; NULL = ceiling(m / n_workers) (default NULL).}
 
-\item{n_workers}{number of parallel workers (default 1).}
+\item{n_workers}{number of workers used only to derive the default
+\code{n_chunks} when \code{chunk = TRUE} and \code{n_chunks = NULL}
+(default 1). The actual parallelism is controlled by the \code{future}
+plan set by the caller.}
 
 \item{OOB}{if TRUE, compute OOB predictions and metrics (default TRUE).}
 

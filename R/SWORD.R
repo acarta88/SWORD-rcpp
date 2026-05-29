@@ -191,6 +191,7 @@ NULL
 # per-class transformation so the same coordinate-descent solver handles both.
 .call_wsvm <- function(x_scaled, y_t, weights,
                        type_of_svm, cost_C, cost_nu, tolerance) {
+  weights[!is.finite(weights) | weights <= 0] <- 1e-10
   if (type_of_svm == "nu-classification") {
     n_pos <- sum(y_t ==  1L)
     n_neg <- sum(y_t == -1L)
@@ -653,7 +654,10 @@ TORS <- function(Covariates, y = NULL,
 #'                     (default FALSE). Set a \code{future} plan before calling.
 #' @param chunk        if TRUE, process trees in chunks (default FALSE).
 #' @param n_chunks     number of chunks; NULL = ceiling(m / n_workers) (default NULL).
-#' @param n_workers    number of parallel workers (default 1).
+#' @param n_workers    number of workers used only to derive the default
+#'   \code{n_chunks} when \code{chunk = TRUE} and \code{n_chunks = NULL}
+#'   (default 1). The actual parallelism is controlled by the \code{future}
+#'   plan set by the caller.
 #' @param OOB          if TRUE, compute OOB predictions and metrics (default TRUE).
 #' @param verbose      if TRUE, print tree index during sequential fitting (default FALSE).
 #' @param timeout_tree max seconds per tree; NULL = no limit (default 300).
@@ -1323,6 +1327,8 @@ summary.sword_flat <- function(object, ...) {
 #' }
 #' @export
 VI_SWORD <- function(forest, raw = FALSE) {
+  if (length(forest$trees) == 0L)
+    stop("No valid trees in the forest (all trees were skipped).")
   vi_list <- lapply(forest$trees, .sword_vi_tree)
   vi_mat  <- do.call(rbind, vi_list)
   vi_raw  <- colMeans(vi_mat, na.rm = TRUE)
@@ -1409,7 +1415,17 @@ VI_SWORD <- function(forest, raw = FALSE) {
 #' @export
 plot_tors_text <- function(tree, use_scaled = FALSE, top_k = 3L, digits = 3L) {
 
-  recurse <- function(nd, indent = 0L, branch = "") {
+  cat("TORS \u2014 text representation\n")
+  cat(strrep("-", 60L), "\n")
+
+  stack <- list(list(nd = 1L, indent = 0L, branch = ""))
+  while (length(stack) > 0L) {
+    frame  <- stack[[length(stack)]]
+    stack  <- stack[-length(stack)]
+
+    nd     <- frame$nd
+    indent <- frame$indent
+    branch <- frame$branch
     prefix <- if (indent == 0L) "" else
       paste0(strrep("  ", indent - 1L), branch)
 
@@ -1420,14 +1436,14 @@ plot_tors_text <- function(tree, use_scaled = FALSE, top_k = 3L, digits = 3L) {
       coef_row <- if (use_scaled) tree$scaled_coeffs[nd, ] else tree$coeffs[nd, ]
       eq       <- .sword_eq_string(coef_row, digits = digits, top_k = top_k)
       cat(sprintf("%sNode %d  n=%d  [ %s ]\n", prefix, nd, tree$n_obs[nd], eq))
-      recurse(tree$left_child[nd],  indent + 1L, "L-- ")
-      recurse(tree$right_child[nd], indent + 1L, "R-- ")
+      # Push right before left so left is popped (and printed) first
+      stack <- c(stack,
+        list(list(nd = tree$right_child[nd], indent = indent + 1L, branch = "R-- ")),
+        list(list(nd = tree$left_child[nd],  indent = indent + 1L, branch = "L-- "))
+      )
     }
   }
 
-  cat("TORS \u2014 text representation\n")
-  cat(strrep("-", 60L), "\n")
-  recurse(1L)
   invisible(tree)
 }
 
@@ -1790,7 +1806,8 @@ plot_oob_fit <- function(forest, y, main = "SWORD \u2014 OOB fit", ...) {
 #' @param xlab   x-axis label (default: the variable name).
 #' @param ylab   y-axis label (default \code{"Partial dependence"}).
 #' @param ...    further graphical arguments passed to \code{plot}.
-#' @return Invisibly returns a data.frame with columns \code{x} (grid values)
+#' @return Invisibly returns a data.frame with columns \code{x} (grid values,
+#'   numeric for continuous variables or character for discrete/factor variables)
 #'   and \code{yhat} (partial dependence values).
 #' @seealso \code{\link{SWORD}}, \code{\link{plot.sword_flat}}
 #' @examples
@@ -1831,7 +1848,7 @@ pdp_sword <- function(forest, X, var, n_grid = 50L, rug = TRUE,
     } else {
       X_tmp[[var]] <- v
     }
-    mean(predict.sword_flat(forest, X_tmp))
+    mean(predict(forest, X_tmp))
   }, numeric(1L))
 
   if (is_discrete) {
@@ -1853,5 +1870,5 @@ pdp_sword <- function(forest, X, var, n_grid = 50L, rug = TRUE,
     if (rug) rug(col_vals, col = adjustcolor("gray40", 0.4))
   }
 
-  invisible(data.frame(x = as.character(grid_vals), yhat = pd))
+  invisible(data.frame(x = grid_vals, yhat = pd))
 }

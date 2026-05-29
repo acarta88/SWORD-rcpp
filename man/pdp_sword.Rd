@@ -38,7 +38,8 @@ observed range (default 50).}
 \item{...}{further graphical arguments passed to \code{plot}.}
 }
 \value{
-Invisibly returns a data.frame with columns \code{x} (grid values)
+Invisibly returns a data.frame with columns \code{x} (grid values,
+  numeric for continuous variables or character for discrete/factor variables)
   and \code{yhat} (partial dependence values).
 }
 \description{

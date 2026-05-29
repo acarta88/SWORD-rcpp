@@ -2,16 +2,26 @@
 
 ## R CMD check results
 
-**0 errors | 0 warnings | 1 note**
+**0 errors | 0 warnings | 2 notes**
 
-The single NOTE is:
+### NOTE 1 — expected for a first submission
 
 ```
 * checking CRAN incoming feasibility ... NOTE
   New submission
 ```
 
-This is expected for a first submission.
+This is standard for any new CRAN package.
+
+### NOTE 2 — local-only (no pandoc installed)
+
+```
+* checking top-level files ... NOTE
+  Files 'README.md' or 'NEWS.md' cannot be checked without 'pandoc' being installed.
+```
+
+Pandoc is not installed in the local check environment. CRAN check machines have
+pandoc and this NOTE does not appear there (confirmed on R-hub Linux and macOS).
 
 ---
 
@@ -19,15 +29,9 @@ This is expected for a first submission.
 
 | Platform | R version | Errors | Warnings | Notes |
 |---|---|---|---|---|
-| Windows 11 (local) | R 4.5.3 | 0 | 0 | 1 (New submission) |
+| Windows 11 (local) | R 4.5.3 ucrt | 0 | 0 | 2 (see above) |
 | Linux R-devel Ubuntu 24.04 (rhub) | R-devel | 0 | 0 | 1 (New submission) |
 | macOS ARM Sequoia 15 (rhub) | R-devel | 0 | 0 | 1 (New submission) |
-
-Notes on the local Windows run that do NOT appear on CRAN servers:
-
-- *"unable to verify current time"* — no NTP access in the check environment.
-- *"README.md or NEWS.md cannot be checked without 'pandoc'"* — pandoc is not
-  installed locally; CRAN check machines have pandoc.
 
 ---
 

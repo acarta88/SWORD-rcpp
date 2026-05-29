@@ -23,6 +23,8 @@ Description: Implements SWORD (Support vector machine Weighted Oblique Random
     'WeightSVM' package by Xu et al. (2024)
     <doi:10.32614/CRAN.package.WeightSVM>.
 License: GPL-3
+URL: https://github.com/acarta88/SWORD-rcpp
+BugReports: https://github.com/acarta88/SWORD-rcpp/issues
 Encoding: UTF-8
 Depends: R (>= 4.1.0)
 Imports:

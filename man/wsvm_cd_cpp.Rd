@@ -24,10 +24,7 @@ A named list with elements \code{w} (primal weights, length p) and
   \code{b} (scalar bias); decision = \code{w^T x_scaled + b}.
 }
 \description{
-Solves a weighted linear SVM in the primal via a cyclic coordinate-descent
-algorithm with bias augmentation. Used internally by \code{\link{TORS}} and
-\code{\link{SWORD}} at each tree node to find the optimal oblique splitting
-hyperplane. Exposed for users who need direct access to the low-level solver.
+Weighted linear C-SVM via coordinate descent (bias augmentation)
 }
 \references{
 Yang, X., Song, Q. and Cao, A. (2005). Weighted support vector machine for
@@ -39,3 +36,4 @@ Xu, T. et al. (2024). \emph{WeightSVM: Subject/Instance Weighted Support
 Vector Machines}. R package version 1.7-16.
 \doi{10.32614/CRAN.package.WeightSVM}
 }
+\keyword{internal}
