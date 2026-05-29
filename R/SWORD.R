@@ -828,7 +828,13 @@ SWORD <- function(
            "Install with: install.packages('progressr')")
 
     furrr_opts <- furrr::furrr_options(
-      seed        = FALSE,   # seeds managed internally via set.seed(idx$seed)
+      # seed = NULL: disables future's RNG-misuse warning without changing the
+      # worker's RNG kind.  Reproducibility is managed explicitly by
+      # set.seed(idx$seed) inside build_tree, which uses the worker's default
+      # Mersenne-Twister — identical to the sequential branch.
+      # (seed = TRUE would switch workers to L'Ecuyer-CMRG, breaking seq == par;
+      #  seed = FALSE leaves the check active and emits warnings.)
+      seed        = NULL,
       globals     = TRUE,
       scheduling  = Inf,
       chunk_size  = NULL
@@ -946,6 +952,7 @@ SWORD <- function(
     oobData        <- Covariates[oob_idx,  , drop = FALSE]
     y_bagging      <- y[boot_idx]
 
+    set.seed(idx$seed)   # mirror build_tree: each tree starts from the same RNG state
     t0 <- proc.time()
     tree <- tryCatch({
       if (!is.null(timeout_tree)) setTimeLimit(elapsed = timeout_tree, transient = TRUE)
@@ -962,10 +969,10 @@ SWORD <- function(
       res
     }, error = function(e) {
       setTimeLimit(elapsed = Inf, transient = FALSE)
-      if (grepl("time|elapsed", e$message, ignore.case = TRUE))
+      if (grepl("time|elapsed", conditionMessage(e), ignore.case = TRUE))
         message("  [TIMEOUT] Tree ", i, " exceeded ", timeout_tree, "s \u2014 skipped")
       else
-        message("  [ERROR] Tree ", i, ": ", e$message)
+        message("  [ERROR] Tree ", i, ": ", conditionMessage(e))
       NULL
     })
 
