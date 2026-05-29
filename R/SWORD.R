@@ -773,7 +773,8 @@ SWORD <- function(
     oobData       <- Covariates[idx$oob,  , drop = FALSE]
     y_bagging     <- y[idx$boot]
 
-    t0 <- proc.time()
+    msg <- NULL
+    t0  <- proc.time()
     tree <- tryCatch({
       if (!is.null(timeout_tree)) setTimeLimit(elapsed = timeout_tree, transient = TRUE)
       res <- TORS(
@@ -789,10 +790,10 @@ SWORD <- function(
       res
     }, error = function(e) {
       setTimeLimit(elapsed = Inf, transient = FALSE)
-      if (grepl("time|elapsed", e$message, ignore.case = TRUE))
-        message("  [TIMEOUT] seed=", idx$seed, " exceeded ", timeout_tree, "s \u2014 skipped")
+      msg <<- if (grepl("time|elapsed", conditionMessage(e), ignore.case = TRUE))
+        sprintf("  [TIMEOUT] seed=%d exceeded %gs \u2014 skipped", idx$seed, timeout_tree)
       else
-        message("  [ERROR] seed=", idx$seed, ": ", e$message)
+        sprintf("  [ERROR] seed=%d: %s", idx$seed, conditionMessage(e))
       NULL
     })
 
@@ -800,18 +801,18 @@ SWORD <- function(
 
     if (is.null(tree))
       return(list(tree = NULL, oob_preds = rep(NA_real_, n),
-                  time_tree = t_tree, time_oob = 0, skipped = TRUE))
+                  time_tree = t_tree, time_oob = 0, skipped = TRUE, msg = msg))
 
     oob_preds <- rep(NA_real_, n)
     t_oob     <- 0
     if (OOB && length(idx$oob) > 0L) {
       t1                 <- proc.time()
-      oob_preds[idx$oob] <- predict.tors_flat(tree, oobData)
+      oob_preds[idx$oob] <- predict(tree, oobData)
       t_oob              <- as.numeric((proc.time() - t1)[["elapsed"]])
     }
 
     list(tree = tree, oob_preds = oob_preds,
-         time_tree = t_tree, time_oob = t_oob, skipped = FALSE)
+         time_tree = t_tree, time_oob = t_oob, skipped = FALSE, msg = NULL)
   }
 
   # ---------------------------------------------------------------------------
@@ -826,6 +827,13 @@ SWORD <- function(
       stop("Package 'progressr' is required for parallel fitting. ",
            "Install with: install.packages('progressr')")
 
+    furrr_opts <- furrr::furrr_options(
+      seed        = FALSE,   # seeds managed internally via set.seed(idx$seed)
+      globals     = TRUE,
+      scheduling  = Inf,
+      chunk_size  = NULL
+    )
+
     if (chunk) {
       if (is.null(n_chunks)) n_chunks <- ceiling(m / n_workers)
       chunks  <- split(index_list,
@@ -835,8 +843,8 @@ SWORD <- function(
         for (ch in chunks) {
           results <- c(results, furrr::future_map(
             ch, build_tree,
-            .options = furrr::furrr_options(seed = TRUE, globals = TRUE,
-                                            scheduling = Inf, chunk_size = NULL)
+            .options  = furrr_opts,
+            .progress = TRUE
           ))
         }
       })
@@ -844,8 +852,7 @@ SWORD <- function(
       progressr::with_progress({
         results <- furrr::future_map(
           index_list, build_tree,
-          .options = furrr::furrr_options(seed = TRUE, globals = TRUE,
-                                          scheduling = Inf, chunk_size = NULL),
+          .options  = furrr_opts,
           .progress = TRUE
         )
       })
@@ -853,20 +860,31 @@ SWORD <- function(
 
     skipped   <- vapply(results, function(r) isTRUE(r$skipped), logical(1L))
     n_skipped <- sum(skipped)
+
+    # Print messages captured inside workers (message() is unreliable in workers)
+    for (msg_txt in Filter(Negate(is.null), lapply(results, `[[`, "msg")))
+      message(msg_txt)
     if (n_skipped > 0L) message("  Skipped trees: ", n_skipped, " / ", m)
 
     treeList  <- lapply(results[!skipped], `[[`, "tree")
     time_tree <- vapply(results, `[[`, numeric(1L), "time_tree")
     time_oob  <- vapply(results, `[[`, numeric(1L), "time_oob")
 
-    if (OOB && sum(!skipped) > 0L) {
-      OOB_matrix  <- do.call(cbind, lapply(results, `[[`, "oob_preds"))
-      oob_counts  <- rowSums(!is.na(OOB_matrix))
-      oob_sums    <- rowSums(OOB_matrix, na.rm = TRUE)
-      final_oob   <- ifelse(oob_counts > 0L, oob_sums / oob_counts, NA_real_)
+    enc_out <- if (is.null(enc$enc_frm)) NULL else
+      enc[c("enc_frm", "contrasts", "fac_lvls", "enc_assign", "enc_var_nms")]
 
-      valid_cols <- colSums(!is.na(OOB_matrix)) > 0L
-      OOB_matrix <- OOB_matrix[, valid_cols, drop = FALSE]
+    if (OOB && sum(!skipped) > 0L) {
+      # Build n x m OOB matrix (all trees, skipped trees are all-NA columns)
+      OOB_matrix_full <- do.call(cbind, lapply(results, `[[`, "oob_preds"))
+
+      # Overall OOB predictions: average over all trees where obs was OOB
+      oob_counts <- rowSums(!is.na(OOB_matrix_full))
+      oob_sums   <- rowSums(OOB_matrix_full, na.rm = TRUE)
+      final_oob  <- ifelse(oob_counts > 0L, oob_sums / oob_counts, NA_real_)
+
+      # Convergence curve: use only valid (non-skipped) columns, in submission order
+      valid_cols <- colSums(!is.na(OOB_matrix_full)) > 0L
+      OOB_matrix <- OOB_matrix_full[, valid_cols, drop = FALSE]
       m_valid    <- ncol(OOB_matrix)
       oob_errors <- vapply(seq_len(m_valid), function(k) {
         partial  <- OOB_matrix[, seq_len(k), drop = FALSE]
@@ -879,7 +897,8 @@ SWORD <- function(
         trees               = treeList,
         feature_names       = feature_names,
         call_params         = call_params,
-        encoding            = if (is.null(enc$enc_frm)) NULL else enc[c("enc_frm", "contrasts", "fac_lvls", "enc_assign", "enc_var_nms")],
+        terms               = terms_obj,
+        encoding            = enc_out,
         oob_predictions     = final_oob,
         MSE                 = mse_oob,
         RMSE                = sqrt(mse_oob),
@@ -897,7 +916,8 @@ SWORD <- function(
       trees         = treeList,
       feature_names = feature_names,
       call_params   = call_params,
-      encoding      = if (is.null(enc$enc_frm)) NULL else enc[c("enc_frm", "contrasts", "fac_lvls", "enc_assign", "enc_var_nms")],
+      terms         = terms_obj,
+      encoding      = enc_out,
       time_tree     = time_tree,
       time_oob      = time_oob,
       n_skipped     = n_skipped
