@@ -635,7 +635,6 @@ TORS <- function(Covariates, y = NULL,
 #' @param cp           complexity parameter (default 0). Unlike \code{\link{TORS}},
 #'   forests use \code{cp = 0} (full trees) by design: bootstrap sampling provides
 #'   regularisation and unpruned trees maximise diversity.
-#' @param n_perc       quantile thresholds per split (default 1).
 #' @param n_topCor     top-correlated features per split (default 2).
 #' @param m            number of trees (default 10).
 #' @param rf_var       features sub-sampled per split (default ncol(Covariates)).
@@ -697,7 +696,6 @@ SWORD <- function(
     nmin          = 5,
     minleaf       = 2,
     cp            = 0.0,
-    n_perc        = 1,
     n_topCor      = 2,
     m             = 10,
     rf_var        = NULL,
@@ -780,7 +778,7 @@ SWORD <- function(
       res <- TORS(
         baggingData, y_bagging,
         nmin = nmin, minleaf = minleaf, cp = cp,
-        n_perc = n_perc, n_topCor = n_topCor,
+        n_perc = 1L, n_topCor = n_topCor,
         rf_var = rf_var, rand_ntopcor = rand_ntopcor,
         relation = relation, Weight_Scheme = Weight_Scheme,
         type_of_svm = type_of_svm, cost_C = cost_C, cost_nu = cost_nu,
@@ -959,7 +957,7 @@ SWORD <- function(
       res <- TORS(
         baggingData, y_bagging,
         nmin = nmin, minleaf = minleaf, cp = cp,
-        n_perc = n_perc, n_topCor = n_topCor,
+        n_perc = 1L, n_topCor = n_topCor,
         rf_var = rf_var, rand_ntopcor = rand_ntopcor,
         relation = relation, Weight_Scheme = Weight_Scheme,
         type_of_svm = type_of_svm, cost_C = cost_C, cost_nu = cost_nu,

@@ -13,7 +13,6 @@ SWORD(
   nmin = 5,
   minleaf = 2,
   cp = 0,
-  n_perc = 1,
   n_topCor = 2,
   m = 10,
   rf_var = NULL,
@@ -53,8 +52,6 @@ formula interface.}
 \item{cp}{complexity parameter (default 0). Unlike \code{\link{TORS}},
 forests use \code{cp = 0} (full trees) by design: bootstrap sampling provides
 regularisation and unpruned trees maximise diversity.}
-
-\item{n_perc}{quantile thresholds per split (default 1).}
 
 \item{n_topCor}{top-correlated features per split (default 2).}
 
