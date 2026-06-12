@@ -92,8 +92,8 @@ test_that("B3: oob_predictions length is correct and most observations are cover
 
 # B4 — convergence curve length and values
 test_that("B4: oob_errors_per_iter length == ncol(OOB_matrix) in parallel mode", {
-  expect_equal(
-    length(forest_par$oob_errors_per_iter),
+  expect_length(
+    forest_par$oob_errors_per_iter,
     ncol(forest_par$OOB_matrix)
   )
 })

@@ -1,9 +1,10 @@
-﻿# SWORD
+# SWORD
 
 <!-- badges: start -->
 [![CRAN status](https://www.r-pkg.org/badges/version/SWORD)](https://CRAN.R-project.org/package=SWORD)
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 [![License: GPL-3](https://img.shields.io/badge/License-GPL--3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![R-CMD-check](https://github.com/acarta88/SWORD-rcpp/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/acarta88/SWORD-rcpp/actions/workflows/R-CMD-check.yaml)
 <!-- badges: end -->
 
 **SWORD** (**S**upport vector machine **W**eighted **O**blique **R**andom

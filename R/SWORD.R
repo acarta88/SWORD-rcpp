@@ -63,7 +63,7 @@ NULL
     w_unscaled   <- t(m_new)
     int_unscaled <- -as.numeric(int_new)
 
-  } else if (all(tree_SVM[["scaled"]] == FALSE)) {
+  } else if (all(!tree_SVM[["scaled"]])) {
     m[colnames(w)] <- w
     w_unscaled     <- t(as.matrix(m))
     int_unscaled   <- -as.numeric(intercept)
@@ -877,7 +877,7 @@ SWORD <- function(
     enc_out <- if (is.null(enc$enc_frm)) NULL else
       enc[c("enc_frm", "contrasts", "fac_lvls", "enc_assign", "enc_var_nms")]
 
-    if (OOB && sum(!skipped) > 0L) {
+    if (OOB && any(!skipped)) {
       # Build n x m OOB matrix (all trees, skipped trees are all-NA columns)
       OOB_matrix_full <- do.call(cbind, lapply(results, `[[`, "oob_preds"))
 
@@ -1075,7 +1075,7 @@ predict.tors_flat <- function(object, newdata, ...) {
   # Columns not in feature_names are silently dropped; missing ones error.
   missing_cols <- setdiff(object$feature_names, colnames(newdata))
   if (length(missing_cols) > 0L)
-    stop("newdata missing columns: ", paste(missing_cols, collapse = ", "))
+    stop("newdata missing columns: ", paste0(missing_cols, collapse = ", "))
 
   int_col  <- which(colnames(object$coeffs) == "Int")
   feat_col <- seq_len(ncol(object$coeffs))[-int_col]
@@ -1214,7 +1214,7 @@ predict.sword_flat <- function(object, newdata, ...) {
   # Columns not in feature_names are silently dropped; missing ones error.
   missing_cols <- setdiff(object$feature_names, colnames(newdata))
   if (length(missing_cols) > 0L)
-    stop("newdata missing columns: ", paste(missing_cols, collapse = ", "))
+    stop("newdata missing columns: ", paste0(missing_cols, collapse = ", "))
 
   pred_mat <- vapply(object$trees,
                      function(tree) predict(tree, newdata),
@@ -1533,8 +1533,7 @@ plot_tors_visnet <- function(tree, use_scaled = TRUE, top_k = 4L, digits = 3L) {
     id    = seq_len(N),
     label = labels,
     title = tooltips,
-    color = ifelse(tree$is_leaf, "#a8d8a8", "#a8c8f8"),
-    stringsAsFactors = FALSE
+    color = ifelse(tree$is_leaf, "#a8d8a8", "#a8c8f8")
   )
 
   from_v <- integer(0L)
@@ -1545,7 +1544,7 @@ plot_tors_visnet <- function(tree, use_scaled = TRUE, top_k = 4L, digits = 3L) {
       to_v   <- c(to_v,   tree$left_child[nd], tree$right_child[nd])
     }
   }
-  edges <- data.frame(from = from_v, to = to_v, stringsAsFactors = FALSE)
+  edges <- data.frame(from = from_v, to = to_v)
 
   visNetwork::visNetwork(nodes, edges, width = "100%", height = "700px") |>
     visNetwork::visHierarchicalLayout(direction = "UD", sortMethod = "directed") |>
@@ -1587,7 +1586,7 @@ plot_tors_visnet <- function(tree, use_scaled = TRUE, top_k = 4L, digits = 3L) {
   cex_vec   <- 0.6 + tree$n_obs / max(tree$n_obs) * 1.8
 
   old_mar <- par(mar = c(2, 3, 3, 1))
-  on.exit(par(old_mar))
+  on.exit(par(old_mar), add = TRUE)
 
   plot(x_pos, y_pos,
        type = "n", xaxt = "n", yaxt = "n",
@@ -1749,7 +1748,7 @@ plot_vi_sword <- function(forest, top_n = 20L, col = "#3498db",
 
   max_name <- max(nchar(names(vi_plot)))
   old_mar  <- par(mar = c(4, max_name * 0.55 + 1, 3, 1))
-  on.exit(par(old_mar))
+  on.exit(par(old_mar), add = TRUE)
 
   barplot(vi_plot,
           horiz  = TRUE,

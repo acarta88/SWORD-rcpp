@@ -2,7 +2,6 @@ Package: SWORD
 Type: Package
 Title: Support Vector Machine Weighted Oblique Random Decision Forests
 Version: 0.1.0
-Date: 2026-05-28
 Authors@R: c(
     person("A.", "Carta",   role = c("aut", "cre"), email = "acarta88@yahoo.it",
            comment = c(ORCID = "0000-0003-4077-1822")),
