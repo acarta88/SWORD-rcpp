@@ -4,17 +4,31 @@
 \alias{predict.sword_flat}
 \title{Predict from a fitted SWORD forest}
 \usage{
-\method{predict}{sword_flat}(object, newdata, ...)
+\method{predict}{sword_flat}(object, newdata, aggregate = TRUE,
+  interval = c("none", "prediction"), level = 0.95, ...)
 }
 \arguments{
 \item{object}{\code{sword_flat} object from \code{\link{SWORD}}.}
 
 \item{newdata}{data.frame of predictors.}
 
+\item{aggregate}{Logical; if \code{TRUE} (default) return the ensemble mean.
+If \code{FALSE} return an \eqn{n \times m} matrix of per-tree predictions.}
+
+\item{interval}{Character; \code{"none"} (default) or \code{"prediction"}.
+When \code{"prediction"}, returns a three-column matrix with columns
+\code{fit}, \code{lwr}, and \code{upr} from empirical quantiles across trees.
+Ignored when \code{aggregate = FALSE}.}
+
+\item{level}{Confidence level for the prediction interval (default \code{0.95}).
+Ignored unless \code{interval = "prediction"}.}
+
 \item{...}{ignored.}
 }
 \value{
-Numeric vector of predictions.
+A numeric vector (default), an \eqn{n \times m} matrix
+  (\code{aggregate = FALSE}), or a three-column matrix
+  (\code{interval = "prediction"}).
 }
 \description{
 Predict from a fitted SWORD forest
@@ -25,7 +39,11 @@ set.seed(1)
 X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
                 dimnames = list(NULL, paste0("x", 1:5))))
 y <- X$x1 * 2 - X$x2 + rnorm(150)
-forest <- SWORD(X, y, m = 10, OOB = FALSE, verbose = FALSE)
+forest <- SWORD(X, y, m = 10, oob = FALSE, verbose = FALSE)
 preds  <- predict(forest, X[1:5, ])
+# Per-tree predictions matrix
+mat    <- predict(forest, X[1:5, ], aggregate = FALSE)
+# 95\% prediction intervals
+pi95   <- predict(forest, X[1:5, ], interval = "prediction")
 }
 }

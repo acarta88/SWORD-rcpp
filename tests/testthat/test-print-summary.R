@@ -4,7 +4,7 @@ X <- data.frame(matrix(rnorm(80 * 4), 80, 4,
 y <- X$x1 * 2 - X$x2 + rnorm(80)
 
 tree   <- TORS(X, y, nmin = 10, cp = 0.01)
-forest <- SWORD(X, y, m = 5, OOB = TRUE, verbose = FALSE)
+forest <- SWORD(X, y, m = 5, oob = TRUE, verbose = FALSE)
 
 # --- print.tors_flat ----------------------------------------------------------
 
@@ -66,7 +66,7 @@ test_that("VI_SWORD returns grouped VI when forest has factor predictors", {
     grp = factor(sample(c("a", "b", "c"), 80, replace = TRUE))
   )
   yf <- Xf$x1 - Xf$x2 + rnorm(80)
-  ff <- SWORD(Xf, yf, m = 5, OOB = FALSE, verbose = FALSE)
+  ff <- SWORD(Xf, yf, m = 5, oob = FALSE, verbose = FALSE)
   vi <- VI_SWORD(ff)
   expect_true("grp" %in% names(vi))
 })
@@ -78,7 +78,7 @@ test_that("VI_SWORD raw = TRUE skips grouping", {
     grp = factor(sample(c("a", "b"), 80, replace = TRUE))
   )
   yf <- Xf$x1 + rnorm(80)
-  ff <- SWORD(Xf, yf, m = 5, OOB = FALSE, verbose = FALSE)
+  ff <- SWORD(Xf, yf, m = 5, oob = FALSE, verbose = FALSE)
   vi_raw <- VI_SWORD(ff, raw = TRUE)
   expect_false("grp" %in% names(vi_raw))
 })

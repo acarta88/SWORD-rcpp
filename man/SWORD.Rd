@@ -13,22 +13,22 @@ SWORD(
   nmin = 5,
   minleaf = 2,
   cp = 0,
-  n_topCor = 2,
-  m = 10,
+  n_top_cor = 2,
+  m = 100,
   rf_var = NULL,
   rand_ntopcor = TRUE,
   relation = "Pearson",
-  Weight_Scheme = "scale",
+  weight_scheme = "scale",
   type_of_svm = "C-classification",
-  cost_C = 1,
+  cost_c = 1,
   cost_nu = 0.5,
   tolerance = 0.001,
-  seed_BS = 25,
+  seed_bs = 25,
   parallel = FALSE,
   chunk = FALSE,
   n_chunks = NULL,
   n_workers = 1,
-  OOB = TRUE,
+  oob = TRUE,
   verbose = FALSE,
   timeout_tree = 300
 )
@@ -53,9 +53,9 @@ formula interface.}
 forests use \code{cp = 0} (full trees) by design: bootstrap sampling provides
 regularisation and unpruned trees maximise diversity.}
 
-\item{n_topCor}{top-correlated features per split (default 2).}
+\item{n_top_cor}{top-correlated features per split (default 2).}
 
-\item{m}{number of trees (default 10).}
+\item{m}{number of trees (default 100).}
 
 \item{rf_var}{features sub-sampled per split (default ncol(Covariates)).}
 
@@ -63,12 +63,12 @@ regularisation and unpruned trees maximise diversity.}
 
 \item{relation}{\code{"Pearson"} or \code{"MI"}.}
 
-\item{Weight_Scheme}{\code{"scale"} or \code{"robust"}.}
+\item{weight_scheme}{\code{"scale"} or \code{"robust"}.}
 
-\item{type_of_svm}{SVM type: \code{"C-classification"} uses \code{cost_C};
+\item{type_of_svm}{SVM type: \code{"C-classification"} uses \code{cost_c};
 \code{"nu-classification"} uses \code{cost_nu} (default \code{"C-classification"}).}
 
-\item{cost_C}{SVM cost parameter C; used when
+\item{cost_c}{SVM cost parameter C; used when
 \code{type_of_svm = "C-classification"} (default 1).}
 
 \item{cost_nu}{nu parameter; used when
@@ -76,7 +76,7 @@ regularisation and unpruned trees maximise diversity.}
 
 \item{tolerance}{convergence tolerance for the C++ solver (default 0.001).}
 
-\item{seed_BS}{integer seed offset for bootstrap samples (default 25).}
+\item{seed_bs}{integer seed offset for bootstrap samples (default 25).}
 
 \item{parallel}{if TRUE, fit trees in parallel via \code{furrr::future_map}
 (default FALSE). Set a \code{future} plan before calling.}
@@ -90,11 +90,14 @@ regularisation and unpruned trees maximise diversity.}
 (default 1). The actual parallelism is controlled by the \code{future}
 plan set by the caller.}
 
-\item{OOB}{if TRUE, compute OOB predictions and metrics (default TRUE).}
+\item{oob}{if TRUE, compute oob predictions and metrics (default TRUE).}
 
 \item{verbose}{if TRUE, print tree index during sequential fitting (default FALSE).}
 
-\item{timeout_tree}{max seconds per tree; NULL = no limit (default 300).}
+\item{timeout_tree}{max seconds per tree; NULL = no limit (default 300). Trees
+that exceed the limit are skipped and excluded from aggregation; the count
+of skipped trees is stored in \code{object$n_skipped} and printed by
+\code{\link{print.sword_flat}}.}
 
 \item{x}{\code{sword_flat} object (for \code{print}).}
 
@@ -110,7 +113,7 @@ Fits SWORD (Support vector machine Weighted Oblique Random Decision forests),
 a random forest of TORS oblique regression trees. Each tree is trained on a
 bootstrap sample; diversity is further increased by random predictor subspacing
 and optional randomisation of the number of features per split. Out-of-bag
-(OOB) predictions and metrics are computed when \code{OOB = TRUE}. Parallel
+(oob) predictions and metrics are computed when \code{oob = TRUE}. Parallel
 fitting is supported via \code{furrr} when the caller sets a \code{future}
 plan before invoking \code{SWORD}.
 }
@@ -120,7 +123,7 @@ set.seed(1)
 X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
                 dimnames = list(NULL, paste0("x", 1:5))))
 y <- X$x1 * 2 - X$x2 + rnorm(150)
-forest <- SWORD(X, y, m = 10, OOB = TRUE, verbose = FALSE)
+forest <- SWORD(X, y, m = 10, oob = TRUE, verbose = FALSE)
 print(forest)
 
 # formula interface

@@ -102,7 +102,7 @@ plot_tors_text(tree, top_k = 2)
 ``` r
 set.seed(42)
 forest <- SWORD(X_train, y_train, m = 50, nmin = 10, cp = 0.01,
-                OOB = TRUE, verbose = FALSE)
+                oob = TRUE, verbose = FALSE)
 forest
 #> ---------- SWORD (Support vector machine Weighted Oblique Random Decision forest)
 #> 

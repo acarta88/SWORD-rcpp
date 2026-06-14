@@ -16,8 +16,8 @@ with_par <- function(expr) {
 }
 
 # Fit reference forests once — reused across multiple tests
-forest_seq <- SWORD(X, y, m = 5L, OOB = TRUE,  verbose = FALSE, parallel = FALSE)
-forest_par <- with_par(SWORD(X, y, m = 5L, OOB = TRUE,  verbose = FALSE, parallel = TRUE))
+forest_seq <- SWORD(X, y, m = 5L, oob = TRUE,  verbose = FALSE, parallel = FALSE)
+forest_par <- with_par(SWORD(X, y, m = 5L, oob = TRUE,  verbose = FALSE, parallel = TRUE))
 
 
 # ==============================================================================
@@ -28,11 +28,11 @@ test_that("A1: parallel predict matches sequential predict", {
   expect_equal(predict(forest_par, X), predict(forest_seq, X))
 })
 
-test_that("A2: parallel OOB predictions match sequential", {
+test_that("A2: parallel oob predictions match sequential", {
   expect_equal(forest_par$oob_predictions, forest_seq$oob_predictions)
 })
 
-test_that("A3: parallel OOB metrics match sequential", {
+test_that("A3: parallel oob metrics match sequential", {
   expect_equal(forest_par$RMSE,     forest_seq$RMSE)
   expect_equal(forest_par$MSE,      forest_seq$MSE)
   expect_equal(forest_par$MAE,      forest_seq$MAE)
@@ -45,7 +45,7 @@ test_that("A4: parallel oob_errors_per_iter matches sequential", {
 
 test_that("A5: parallel is reproducible — two identical runs give identical results", {
   forest_par2 <- with_par(
-    SWORD(X, y, m = 5L, OOB = TRUE, verbose = FALSE, parallel = TRUE)
+    SWORD(X, y, m = 5L, oob = TRUE, verbose = FALSE, parallel = TRUE)
   )
   expect_equal(predict(forest_par, X), predict(forest_par2, X))
   expect_equal(forest_par$oob_predictions, forest_par2$oob_predictions)
@@ -60,7 +60,7 @@ test_that("A5: parallel is reproducible — two identical runs give identical re
 test_that("B1: predict works after parallel formula fit (regression: missing terms field)", {
   df         <- cbind(X, y = y)
   forest_frm <- with_par(
-    SWORD(y ~ ., data = df, m = 4L, OOB = FALSE, verbose = FALSE, parallel = TRUE)
+    SWORD(y ~ ., data = df, m = 4L, oob = FALSE, verbose = FALSE, parallel = TRUE)
   )
   expect_s3_class(forest_frm, "sword_flat")
   preds <- predict(forest_frm, df)
@@ -68,15 +68,15 @@ test_that("B1: predict works after parallel formula fit (regression: missing ter
   expect_true(all(is.finite(preds)))
 })
 
-# B2 — OOB matrix dimensions
-test_that("B2: OOB_matrix has n rows and one column per valid tree in parallel mode", {
-  expect_equal(nrow(forest_par$OOB_matrix), nrow(X))
+# B2 — oob matrix dimensions
+test_that("B2: oob_matrix has n rows and one column per valid tree in parallel mode", {
+  expect_equal(nrow(forest_par$oob_matrix), nrow(X))
   # No trees were skipped → ncol must equal the number of trees requested
-  expect_equal(ncol(forest_par$OOB_matrix), length(forest_par$trees))
+  expect_equal(ncol(forest_par$oob_matrix), length(forest_par$trees))
 })
 
-# B3 — OOB predictions coverage
-# With m bootstrap samples, P(obs never OOB) ≈ (1-1/e)^m ≈ 0.63^m.
+# B3 — oob predictions coverage
+# With m bootstrap samples, P(obs never oob) ≈ (1-1/e)^m ≈ 0.63^m.
 # For m = 5 that is ~10 %, so some NAs are expected and correct.
 # We only require that the majority of observations are covered.
 test_that("B3: oob_predictions length is correct and most observations are covered (parallel)", {
@@ -91,10 +91,10 @@ test_that("B3: oob_predictions length is correct and most observations are cover
 })
 
 # B4 — convergence curve length and values
-test_that("B4: oob_errors_per_iter length == ncol(OOB_matrix) in parallel mode", {
+test_that("B4: oob_errors_per_iter length == ncol(oob_matrix) in parallel mode", {
   expect_length(
     forest_par$oob_errors_per_iter,
-    ncol(forest_par$OOB_matrix)
+    ncol(forest_par$oob_matrix)
   )
 })
 
@@ -109,10 +109,10 @@ test_that("B4c: oob_errors_per_iter[m_valid] equals MSE from final_oob (parallel
   expect_equal(last_err, forest_par$MSE, tolerance = 1e-10)
 })
 
-# B5 — chunk path: same predictions and OOB as non-chunked parallel
+# B5 — chunk path: same predictions and oob as non-chunked parallel
 test_that("B5: chunk = TRUE parallel gives identical results to non-chunked parallel", {
   forest_chunk <- with_par(
-    SWORD(X, y, m = 5L, OOB = TRUE, verbose = FALSE,
+    SWORD(X, y, m = 5L, oob = TRUE, verbose = FALSE,
           parallel = TRUE, chunk = TRUE, n_chunks = 2L)
   )
   expect_equal(predict(forest_chunk, X), predict(forest_par, X))
@@ -120,10 +120,10 @@ test_that("B5: chunk = TRUE parallel gives identical results to non-chunked para
   expect_equal(forest_chunk$oob_errors_per_iter, forest_par$oob_errors_per_iter)
 })
 
-# B6 — OOB = FALSE in parallel (no OOB fields, no crash)
-test_that("B6: SWORD parallel with OOB = FALSE returns valid forest without OOB fields", {
+# B6 — oob = FALSE in parallel (no oob fields, no crash)
+test_that("B6: SWORD parallel with oob = FALSE returns valid forest without oob fields", {
   forest_no_oob <- with_par(
-    SWORD(X, y, m = 4L, OOB = FALSE, verbose = FALSE, parallel = TRUE)
+    SWORD(X, y, m = 4L, oob = FALSE, verbose = FALSE, parallel = TRUE)
   )
   expect_s3_class(forest_no_oob, "sword_flat")
   expect_length(forest_no_oob$trees, 4L)

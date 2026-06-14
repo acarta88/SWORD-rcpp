@@ -68,6 +68,9 @@ List wsvm_cd_cpp(NumericMatrix x,
   }
 
   // Cyclic coordinate ascent
+  int  final_iter = max_iter;
+  bool converged  = false;
+
   for (int iter = 0; iter < max_iter; iter++) {
     double max_delta = 0.0;
 
@@ -94,9 +97,15 @@ List wsvm_cd_cpp(NumericMatrix x,
       if (std::abs(delta) > max_delta) max_delta = std::abs(delta);
     }
 
-    if (max_delta < tol) break;
+    if (max_delta < tol) {
+      final_iter = iter + 1;
+      converged  = true;
+      break;
+    }
   }
 
-  return List::create(Named("w") = NumericVector(w.begin(), w.end()),
-                      Named("b") = b);
+  return List::create(Named("w")         = NumericVector(w.begin(), w.end()),
+                      Named("b")         = b,
+                      Named("converged") = converged,
+                      Named("iter")      = final_iter);
 }

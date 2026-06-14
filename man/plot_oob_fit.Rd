@@ -7,7 +7,7 @@
 plot_oob_fit(forest, y, main = "SWORD — OOB fit", ...)
 }
 \arguments{
-\item{forest}{\code{sword_flat} object fit with \code{OOB = TRUE}.}
+\item{forest}{\code{sword_flat} object fit with \code{oob = TRUE}.}
 
 \item{y}{numeric vector of true response values in the same order as
 the training data passed to \code{\link{SWORD}}.}
@@ -23,7 +23,7 @@ Invisibly returns a list with elements \code{rmse}, \code{mae}, and
 \description{
 Plots out-of-bag predictions against the true response values with an
 identity line and RMSE / R\eqn{^2} annotation. Requires that the forest was
-fit with \code{OOB = TRUE}.
+fit with \code{oob = TRUE}.
 }
 \examples{
 \donttest{
@@ -31,7 +31,7 @@ set.seed(1)
 X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
                 dimnames = list(NULL, paste0("x", 1:5))))
 y <- X$x1 * 2 - X$x2 + rnorm(150)
-forest <- SWORD(X, y, m = 10, OOB = TRUE, verbose = FALSE)
+forest <- SWORD(X, y, m = 10, oob = TRUE, verbose = FALSE)
 plot_oob_fit(forest, y)
 }
 }

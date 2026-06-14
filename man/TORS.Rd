@@ -14,13 +14,13 @@ TORS(
   minleaf = round(nmin/3),
   cp = 0.01,
   n_perc = 1,
-  n_topCor = 2,
+  n_top_cor = 2,
   rf_var = NULL,
   rand_ntopcor = FALSE,
   relation = "Pearson",
-  Weight_Scheme = "scale",
+  weight_scheme = "scale",
   type_of_svm = "C-classification",
-  cost_C = 1,
+  cost_c = 1,
   cost_nu = 0.5,
   tolerance = 0.001
 )
@@ -46,7 +46,7 @@ TORS(
 
 \item{n_perc}{number of candidate quantile thresholds per split (default 1).}
 
-\item{n_topCor}{number of top-correlated features per split (default 2).}
+\item{n_top_cor}{number of top-correlated features per split (default 2).}
 
 \item{rf_var}{features randomly sub-sampled per split (default ncol(Covariates)).}
 
@@ -54,13 +54,13 @@ TORS(
 
 \item{relation}{feature selection criterion: \code{"Pearson"} or \code{"MI"}.}
 
-\item{Weight_Scheme}{observation weighting: \code{"scale"} or \code{"robust"}.}
+\item{weight_scheme}{observation weighting: \code{"scale"} or \code{"robust"}.}
 
 \item{type_of_svm}{SVM type: \code{"C-classification"} uses the cost parameter
-\code{cost_C}; \code{"nu-classification"} uses \code{cost_nu} (fraction of
+\code{cost_c}; \code{"nu-classification"} uses \code{cost_nu} (fraction of
 margin errors/support vectors, in (0, 1]).}
 
-\item{cost_C}{SVM cost parameter C; used when
+\item{cost_c}{SVM cost parameter C; used when
 \code{type_of_svm = "C-classification"} (default 1).}
 
 \item{cost_nu}{nu parameter; used when

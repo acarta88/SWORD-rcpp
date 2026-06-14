@@ -54,7 +54,7 @@ set.seed(1)
 X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
                 dimnames = list(NULL, paste0("x", 1:5))))
 y <- X$x1 * 2 - X$x2 + rnorm(150)
-forest <- SWORD(X, y, m = 10, OOB = FALSE, verbose = FALSE)
+forest <- SWORD(X, y, m = 10, oob = FALSE, verbose = FALSE)
 pdp_sword(forest, X, "x1")
 }
 }

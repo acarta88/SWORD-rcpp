@@ -4,7 +4,7 @@ X <- data.frame(matrix(rnorm(80 * 4), 80, 4,
 y <- X$x1 * 2 - X$x2 + rnorm(80)
 
 tree   <- TORS(X, y, nmin = 10, cp = 0.01)
-forest <- SWORD(X, y, m = 5, OOB = TRUE, verbose = FALSE)
+forest <- SWORD(X, y, m = 5, oob = TRUE, verbose = FALSE)
 
 # --- plot_tors_text -----------------------------------------------------------
 
@@ -71,9 +71,9 @@ test_that("plot_oob_fit runs without error", {
   expect_no_error(plot_oob_fit(forest, y))
 })
 
-test_that("plot_oob_fit errors when OOB = FALSE", {
-  f_no_oob <- SWORD(X, y, m = 3, OOB = FALSE, verbose = FALSE)
-  expect_error(plot_oob_fit(f_no_oob, y), "OOB = TRUE")
+test_that("plot_oob_fit errors when oob = FALSE", {
+  f_no_oob <- SWORD(X, y, m = 3, oob = FALSE, verbose = FALSE)
+  expect_error(plot_oob_fit(f_no_oob, y), "oob = TRUE")
 })
 
 # --- pdp_sword ----------------------------------------------------------------
@@ -96,7 +96,7 @@ test_that("pdp_sword runs on discrete variable (few unique values)", {
     grp = sample(1:4, 80, replace = TRUE)
   )
   yd <- Xd$x1 + rnorm(80)
-  fd <- SWORD(Xd, yd, m = 4, OOB = FALSE, verbose = FALSE)
+  fd <- SWORD(Xd, yd, m = 4, oob = FALSE, verbose = FALSE)
   tf <- tempfile(fileext = ".pdf")
   pdf(tf)
   on.exit({ dev.off(); unlink(tf) }, add = TRUE)

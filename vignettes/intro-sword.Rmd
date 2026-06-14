@@ -83,10 +83,10 @@ cat("Training set:", nrow(X_train), "obs |",
 |---|---|---|
 | `nmin` | minimum node size | 5 |
 | `cp` | complexity threshold for splitting | 0.01 |
-| `n_topCor` | top-correlated features fed to the SVM at each node | 2 |
+| `n_top_cor` | top-correlated features fed to the SVM at each node | 2 |
 | `relation` | feature selection criterion: `"Pearson"` or `"MI"` | `"Pearson"` |
-| `Weight_Scheme` | observation weighting: `"scale"` or `"robust"` | `"scale"` |
-| `cost_C` | SVM cost C | 1 |
+| `weight_scheme` | observation weighting: `"scale"` or `"robust"` | `"scale"` |
+| `cost_c` | SVM cost C | 1 |
 
 ```{r tors-fit}
 set.seed(1)
@@ -140,25 +140,25 @@ With `cp = 0` the tree grows until every node reaches `nmin`, producing the
 deepest structure; increasing `cp` results in more aggressive pruning and
 shallower trees.
 
-### Effect of `n_topCor` on split richness
+### Effect of `n_top_cor` on split richness
 
-`n_topCor` controls how many top-correlated features are passed to the
+`n_top_cor` controls how many top-correlated features are passed to the
 Weighted-SVM at each node.  Because TORS splits are always oblique (linear
 combinations of predictors), the minimum meaningful value is 2; larger values
 allow the SVM to combine more predictors into denser oblique hyperplanes.
 
 ```{r tors-ntopcor}
 set.seed(1)
-t_nc2 <- TORS(X_train, y_train, nmin = 15, cp = 0.02, n_topCor = 2)
-t_nc4 <- TORS(X_train, y_train, nmin = 15, cp = 0.02, n_topCor = 4)
+t_nc2 <- TORS(X_train, y_train, nmin = 15, cp = 0.02, n_top_cor = 2)
+t_nc4 <- TORS(X_train, y_train, nmin = 15, cp = 0.02, n_top_cor = 4)
 
-cat("--- n_topCor = 2 (default, sparse oblique) ---\n")
+cat("--- n_top_cor = 2 (default, sparse oblique) ---\n")
 plot_tors_text(t_nc2, top_k = 2)
-cat("\n--- n_topCor = 4 (richer oblique splits) ---\n")
+cat("\n--- n_top_cor = 4 (richer oblique splits) ---\n")
 plot_tors_text(t_nc4, top_k = 4)
 ```
 
-With `n_topCor = 2` each split combines two predictors; with `n_topCor = 4`
+With `n_top_cor = 2` each split combines two predictors; with `n_top_cor = 4`
 the Weighted-SVM can involve up to four predictors per split, producing denser
 oblique hyperplanes at the cost of higher per-node fitting time.
 
@@ -167,7 +167,7 @@ oblique hyperplanes at the cost of higher per-node fitting time.
 ## Fitting a SWORD forest
 
 `SWORD()` fits a random forest of TORS trees with bootstrap sampling.
-Setting `OOB = TRUE` (the default) accumulates out-of-bag predictions at each
+Setting `oob = TRUE` (the default) accumulates out-of-bag predictions at each
 iteration, which lets you monitor convergence without a separate validation set.
 
 ```{r sword-fit}
@@ -176,7 +176,7 @@ forest <- SWORD(X_train, y_train,
                 m       = 50,
                 nmin    = 10,
                 cp      = 0.01,
-                OOB     = TRUE,
+                oob     = TRUE,
                 verbose = FALSE)
 print(forest)
 ```
@@ -279,7 +279,7 @@ par(old_par)
 ## Parameter sensitivity in SWORD
 
 Four parameters most likely to affect predictive accuracy are `relation`,
-`Weight_Scheme`, `rf_var`, and `rand_ntopcor`.  In this section we fit
+`weight_scheme`, `rf_var`, and `rand_ntopcor`.  In this section we fit
 compact forests (`m = 20`, `nmin = 10`, `cp = 0.01`) varying each parameter
 in turn and compare test-set RMSE on the same Boston hold-out.
 
@@ -310,9 +310,9 @@ cat(sprintf("MI       — test RMSE: %.3f\n", rmse_f(y_test, predict(f_mi,      
 Both criteria are competitive on continuous predictors; `"MI"` may offer an
 advantage when predictor–response associations are strongly non-linear.
 
-### Observation weighting: `Weight_Scheme`
+### Observation weighting: `weight_scheme`
 
-`Weight_Scheme` determines how observations are weighted when fitting the
+`weight_scheme` determines how observations are weighted when fitting the
 Weighted-SVM at each node.  Both schemes assign higher weight to observations
 whose response is far from the local centre, guiding the SVM to concentrate
 on the most informative thresholds.  The two formulas differ in how the
@@ -332,10 +332,10 @@ the response.
 ```{r params-weight}
 set.seed(42)
 f_scale  <- SWORD(X_train, y_train, m = 20, nmin = 10, cp = 0.01,
-                  Weight_Scheme = "scale",  verbose = FALSE)
+                  weight_scheme = "scale",  verbose = FALSE)
 set.seed(42)
 f_robust <- SWORD(X_train, y_train, m = 20, nmin = 10, cp = 0.01,
-                  Weight_Scheme = "robust", verbose = FALSE)
+                  weight_scheme = "robust", verbose = FALSE)
 
 cat(sprintf("scale    — test RMSE: %.3f\n", rmse_f(y_test, predict(f_scale,  X_test))))
 cat(sprintf("robust   — test RMSE: %.3f\n", rmse_f(y_test, predict(f_robust, X_test))))
@@ -347,7 +347,7 @@ extreme values that would inflate \(s_y\) and distort the `"scale"` weights.
 ### Feature subsampling per split: `rf_var`
 
 `rf_var` sets how many predictors are randomly sub-sampled at each node
-before the top-`n_topCor` correlated ones are selected for the SVM.
+before the top-`n_top_cor` correlated ones are selected for the SVM.
 Reducing `rf_var` increases tree decorrelation — analogously to `mtry` in
 standard random forests.  Three common choices with `p = 13` predictors:
 
@@ -385,7 +385,7 @@ When `rand_ntopcor = TRUE` (the SWORD default) the number of top-correlated
 features passed to the SVM at each node is itself drawn at random from
 \eqn{\{2, \ldots, \texttt{rf\_var}\}}, introducing an extra source of tree
 diversity beyond bootstrap sampling.  Setting it to `FALSE` fixes that count
-at `n_topCor` for every split.
+at `n_top_cor` for every split.
 
 ```{r params-rand}
 set.seed(42)
@@ -410,7 +410,7 @@ it can occasionally hurt by introducing excess variance.
 tbl <- data.frame(
   Parameter = c(
     "relation", "relation",
-    "Weight_Scheme", "Weight_Scheme",
+    "weight_scheme", "weight_scheme",
     "rf_var", "rf_var", "rf_var",
     "rand_ntopcor", "rand_ntopcor"
   ),
@@ -454,7 +454,7 @@ X_dia <- diamonds[idx, c("carat","cut","color","clarity",
                           "depth","table","x","y","z")]
 y_dia <- diamonds$price[idx]
 
-forest_dia <- SWORD(X_dia, y_dia, m = 50, OOB = TRUE, verbose = FALSE)
+forest_dia <- SWORD(X_dia, y_dia, m = 50, oob = TRUE, verbose = FALSE)
 print(forest_dia)
 
 # VI grouped by original variable (not by dummy column)

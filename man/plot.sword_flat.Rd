@@ -10,7 +10,7 @@
 \item{x}{\code{sword_flat} object from \code{\link{SWORD}}.}
 
 \item{which}{\code{"oob"} for OOB MSE convergence curve (requires
-\code{OOB = TRUE} at fit time); \code{"vi"} for variable importance
+\code{oob = TRUE} at fit time); \code{"vi"} for variable importance
 barplot.}
 
 \item{top_n}{maximum variables shown when \code{which = "vi"} (default 20).}
@@ -30,7 +30,7 @@ set.seed(1)
 X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
                 dimnames = list(NULL, paste0("x", 1:5))))
 y <- X$x1 * 2 - X$x2 + rnorm(150)
-forest <- SWORD(X, y, m = 10, OOB = TRUE, verbose = FALSE)
+forest <- SWORD(X, y, m = 10, oob = TRUE, verbose = FALSE)
 plot(forest, which = "oob")
 plot(forest, which = "vi")
 }

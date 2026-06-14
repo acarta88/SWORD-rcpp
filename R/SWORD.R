@@ -28,6 +28,36 @@ NULL
 # INTERNAL HELPERS  (.sword_* prefix \u2014 not exported)
 # ==============================================================================
 
+.sword_validate <- function(Covariates, y) {
+  if (!is.data.frame(Covariates) && !is.matrix(Covariates))
+    stop("'Covariates' must be a data.frame or matrix.")
+  if (!is.numeric(y))
+    stop("'y' must be a numeric vector.")
+  if (length(y) != nrow(Covariates))
+    stop("length(y) (", length(y), ") != nrow(Covariates) (", nrow(Covariates), ").")
+  if (length(y) < 2L)
+    stop("At least 2 observations are required.")
+  na_y  <- sum(!is.finite(y))
+  # Count non-finite cells per column: numeric/logical columns use is.finite,
+  # factor/character columns (one-hot encoded later) use is.na so that valid
+  # categorical predictors are not flagged as non-finite.
+  if (is.data.frame(Covariates)) {
+    na_x <- sum(vapply(Covariates, function(col) {
+      if (is.numeric(col)) sum(!is.finite(col))
+      else                 sum(is.na(col))
+    }, numeric(1L)))
+  } else {  # matrix
+    na_x <- if (is.numeric(Covariates)) sum(!is.finite(Covariates))
+            else                        sum(is.na(Covariates))
+  }
+  if (na_y > 0L || na_x > 0L)
+    stop("Data contains ", na_y, " non-finite value(s) in y and ",
+         na_x, " in Covariates. Remove them with na.omit() or complete.cases() first.")
+  if (stats::var(y) == 0)
+    stop("'y' has zero variance; the response must not be constant.")
+  invisible(NULL)
+}
+
 .sword_deviance <- function(y) {
   if (length(y) <= 1L) return(0)
   var(y) * (length(y) - 1L)
@@ -81,7 +111,10 @@ NULL
   }
 
   coefficients <- c(w_unscaled, int_unscaled)
-  coefficients[is.na(coefficients)] <- 0
+  # Replace all non-finite values (NA, NaN, +/-Inf): a degenerate node with a
+  # constant predictor yields sd = 0 and hence Inf after back-transformation,
+  # which is.na() would miss and would propagate as NA into the split test.
+  coefficients[!is.finite(coefficients)] <- 0
   names(coefficients) <- c(colnames(w_unscaled), "Int")
   coefficients
 }
@@ -105,7 +138,7 @@ NULL
   int_scaled <- -as.numeric(intercept)
 
   coefficients <- c(w_scaled, int_scaled)
-  coefficients[is.na(coefficients)] <- 0
+  coefficients[!is.finite(coefficients)] <- 0
   names(coefficients) <- c(colnames(w_scaled), "Int")
   coefficients
 }
@@ -161,9 +194,17 @@ NULL
   for (nm in names(X))
     if (is.logical(X[[nm]])) X[[nm]] <- as.integer(X[[nm]])
 
-  as.data.frame(
-    stats::model.matrix(enc$enc_frm, data = X, contrasts.arg = enc$contrasts)
-  )
+  # Build the design matrix without dropping rows: an unseen factor level
+  # becomes NA after the factor() re-level above; with na.action = na.pass the
+  # row is retained and its dummy columns are NA, which we then set to 0 so the
+  # observation maps to the (all-zero) reference encoding instead of being lost.
+  old_na <- getOption("na.action")
+  options(na.action = "na.pass")
+  on.exit(options(na.action = old_na), add = TRUE)
+
+  mm <- stats::model.matrix(enc$enc_frm, data = X, contrasts.arg = enc$contrasts)
+  mm[is.na(mm)] <- 0
+  as.data.frame(mm)
 }
 
 
@@ -187,10 +228,23 @@ NULL
   )
 }
 
+# Axis-aligned fallback when the C++ solver returns all-zero weights.
+# Splits on the feature most correlated with y at its median.
+.axis_aligned_fallback <- function(x_mat, y, mu, sigma, feat_names) {
+  abs_cors <- abs(drop(cor(y, x_mat)))
+  abs_cors[!is.finite(abs_cors)] <- 0
+  best_j   <- which.max(abs_cors)
+  med_j    <- median(x_mat[, best_j])
+  w_s      <- numeric(length(feat_names))
+  w_s[best_j] <- 1.0
+  b_s      <- -(med_j - mu[best_j]) / sigma[best_j]
+  .make_pseudo_svm(w_s, b_s, feat_names)
+}
+
 # Dispatch to C++ solver; for nu-classification applies the LIBSVM nu->C
 # per-class transformation so the same coordinate-descent solver handles both.
 .call_wsvm <- function(x_scaled, y_t, weights,
-                       type_of_svm, cost_C, cost_nu, tolerance) {
+                       type_of_svm, cost_c, cost_nu, tolerance) {
   weights[!is.finite(weights) | weights <= 0] <- 1e-10
   if (type_of_svm == "nu-classification") {
     n_pos <- sum(y_t ==  1L)
@@ -200,7 +254,7 @@ NULL
     eff_w <- ifelse(y_t == 1L, weights * C_pos, weights * C_neg)
     wsvm_cd_cpp(x_scaled, y_t, eff_w, C = 1.0, max_iter = 5000L, tol = tolerance)
   } else {
-    wsvm_cd_cpp(x_scaled, y_t, weights, C = cost_C, max_iter = 5000L, tol = tolerance)
+    wsvm_cd_cpp(x_scaled, y_t, weights, C = cost_c, max_iter = 5000L, tol = tolerance)
   }
 }
 
@@ -208,17 +262,17 @@ NULL
 # ==============================================================================
 # .sword_best_split  \u2014 C++ coordinate-descent solver
 # ==============================================================================
-.sword_best_split <- function(x, y, n_perc, n_topCor,
+.sword_best_split <- function(x, y, n_perc, n_top_cor,
                                rf_var, rand_ntopcor, relation,
-                               Weight_Scheme = c("scale", "robust"),
+                               weight_scheme = c("scale", "robust"),
                                type_of_svm   = c("C-classification", "nu-classification"),
-                               cost_C    = 1,
+                               cost_c    = 1,
                                cost_nu   = 0.5,
                                tolerance = 0.001) {
 
   x <- as.matrix(x)
 
-  if (!is.null(rf_var) && rf_var >= n_topCor)
+  if (!is.null(rf_var) && rf_var >= n_top_cor)
     x <- x[, sample(ncol(x), ceiling(rf_var)), drop = FALSE]
 
   non_const <- x[, apply(x, 2L, function(col) max(col) != min(col)), drop = FALSE]
@@ -231,12 +285,13 @@ NULL
 
     abs_cors <- abs(drop(cor(y, non_const)))
     names(abs_cors) <- colnames(non_const)
+    abs_cors[!is.finite(abs_cors)] <- 0
 
     thresh_pass <- which(abs_cors >= 1)
     if (length(thresh_pass) >= 1L) {
       selected <- non_const[, thresh_pass, drop = FALSE]
     } else {
-      n_k <- if (rand_ntopcor) sample(seq(2L, rf_var), 1L) else n_topCor
+      n_k <- if (rand_ntopcor) sample(seq(2L, rf_var), 1L) else n_top_cor
       selected <- non_const[,
         .sword_top_n(abs_cors, min(n_k, ncol(non_const))),
         drop = FALSE]
@@ -252,7 +307,7 @@ NULL
     mi_scores <- vapply(seq_len(ncol(disc_x)), function(i)
       infotheo::mutinformation(disc_x[, i, drop = FALSE], disc_y),
       numeric(1L))
-    n_k <- if (rand_ntopcor) sample(seq(2L, rf_var), 1L) else n_topCor
+    n_k <- if (rand_ntopcor) sample(seq(2L, rf_var), 1L) else n_top_cor
     selected <- non_const[,
       .sword_top_n(mi_scores, min(n_k, ncol(non_const))),
       drop = FALSE]
@@ -269,7 +324,7 @@ NULL
   x_scaled <- sweep(sweep(x_mat, 2L, mu, "-"), 2L, sigma, "/")
 
   # Observation weights
-  if (Weight_Scheme == "scale") {
+  if (weight_scheme == "scale") {
     weights <- as.numeric(abs(scale(y)))
     weights[weights == 0 | !is.finite(weights)] <- 1e-10
   } else {
@@ -289,7 +344,9 @@ NULL
       y_t <- as.integer(y < t) * 2L - 1L
 
     res <- .call_wsvm(x_scaled, y_t, weights,
-                      type_of_svm, cost_C, cost_nu, tolerance)
+                      type_of_svm, cost_c, cost_nu, tolerance)
+    if (all(res$w == 0))
+      return(.axis_aligned_fallback(x_mat, y, mu, sigma, feat_names))
     return(.make_pseudo_svm(res$w, res$b, feat_names))
   }
 
@@ -303,7 +360,7 @@ NULL
     y_t <- as.integer(y <= t) * 2L - 1L
     if (length(unique(y_t)) == 1L) return(.sword_deviance(y))
     res   <- .call_wsvm(x_scaled, y_t, weights,
-                        type_of_svm, cost_C, cost_nu, tolerance)
+                        type_of_svm, cost_c, cost_nu, tolerance)
     score <- drop(x_scaled %*% res$w) + res$b
     .sword_deviance(y[score < 0]) + .sword_deviance(y[score >= 0])
   }, numeric(1L))
@@ -311,7 +368,9 @@ NULL
   t_best <- thr_cand[which.min(deviances)]
   y_t    <- as.integer(y <= t_best) * 2L - 1L
   res    <- .call_wsvm(x_scaled, y_t, weights,
-                       type_of_svm, cost_C, cost_nu, tolerance)
+                       type_of_svm, cost_c, cost_nu, tolerance)
+  if (all(res$w == 0))
+    return(.axis_aligned_fallback(x_mat, y, mu, sigma, feat_names))
   .make_pseudo_svm(res$w, res$b, feat_names)
 }
 
@@ -321,18 +380,18 @@ NULL
 # ==============================================================================
 
 .sword_node_split <- function(x_sub, y_sub,
-                              n_perc, n_topCor,
+                              n_perc, n_top_cor,
                               rf_var, rand_ntopcor, relation,
-                              Weight_Scheme, type_of_svm, cost_C, cost_nu,
+                              weight_scheme, type_of_svm, cost_c, cost_nu,
                               tolerance = 0.001) {
 
   tree_SVM      <- .sword_best_split(x_sub, y_sub,
-                                     n_perc = n_perc, n_topCor = n_topCor,
+                                     n_perc = n_perc, n_top_cor = n_top_cor,
                                      rf_var = rf_var, rand_ntopcor = rand_ntopcor,
                                      relation = relation,
-                                     Weight_Scheme = Weight_Scheme,
+                                     weight_scheme = weight_scheme,
                                      type_of_svm = type_of_svm,
-                                     cost_C = cost_C, cost_nu = cost_nu,
+                                     cost_c = cost_c, cost_nu = cost_nu,
                                      tolerance = tolerance)
   coef_unscaled <- .sword_coef_unscaled(tree_SVM, x_sub)
   go_left       <- .sword_pred_coef(x_sub, coef_unscaled)
@@ -367,10 +426,10 @@ NULL
 }
 
 .sword_grow_flat <- function(x_mat, y,
-                              nmin, minleaf, cp, n_perc, n_topCor,
+                              nmin, minleaf, cp, n_perc, n_top_cor,
                               original_deviance,
                               rf_var, rand_ntopcor, relation,
-                              Weight_Scheme, type_of_svm, cost_C, cost_nu,
+                              weight_scheme, type_of_svm, cost_c, cost_nu,
                               tolerance) {
 
   feature_names <- colnames(x_mat)
@@ -429,10 +488,10 @@ NULL
 
     x_sub <- x_mat[row_idx, , drop = FALSE]
     nd    <- .sword_node_split(x_sub, y_sub,
-                               n_perc = n_perc, n_topCor = n_topCor,
+                               n_perc = n_perc, n_top_cor = n_top_cor,
                                rf_var = rf_var, rand_ntopcor = rand_ntopcor,
-                               relation = relation, Weight_Scheme = Weight_Scheme,
-                               type_of_svm = type_of_svm, cost_C = cost_C,
+                               relation = relation, weight_scheme = weight_scheme,
+                               type_of_svm = type_of_svm, cost_c = cost_c,
                                cost_nu = cost_nu, tolerance = tolerance)
 
     y_left   <- y_sub[ nd$go_left]
@@ -440,7 +499,14 @@ NULL
     dev_post <- .sword_deviance(y_left) + .sword_deviance(y_right)
     cp_node  <- dev_post / original_deviance
 
-    if (nd$n_left < minleaf || nd$n_right < minleaf || cp_node < cp) {
+    # Defensive: a degenerate split (e.g. all-constant predictors at the node)
+    # can yield NA membership; treat such a node as a terminal leaf rather than
+    # letting NA reach the comparison below.
+    no_valid_split <- anyNA(nd$go_left) || is.na(nd$n_left) ||
+                      is.na(nd$n_right) || is.na(cp_node)
+
+    if (no_valid_split ||
+        nd$n_left < minleaf || nd$n_right < minleaf || cp_node < cp) {
       is_leaf_v[node_id]   <- TRUE
       leaf_mean_v[node_id] <- mean(y_sub)
       dev_v[node_id]       <- .sword_deviance(y_sub)
@@ -509,16 +575,20 @@ NULL
 #' @param minleaf      minimum leaf size after a split (default round(nmin/3)).
 #' @param cp           complexity parameter: minimum relative post-split deviance
 #'                     (default 0.01; use 0 to grow the full tree).
-#' @param n_perc       number of candidate quantile thresholds per split (default 1).
-#' @param n_topCor     number of top-correlated features per split (default 2).
+#' @param n_perc       number of candidate split thresholds to evaluate per node
+#'   (default 1). When \code{n_perc = 1} the response is dichotomised at its
+#'   median (the recommended setting). When \code{n_perc > 1} the algorithm
+#'   evaluates that many evenly-spaced quantile thresholds and picks the one
+#'   that minimises node deviance, at the cost of higher computation.
+#' @param n_top_cor     number of top-correlated features per split (default 2).
 #' @param rf_var       features randomly sub-sampled per split (default ncol(Covariates)).
 #' @param rand_ntopcor if TRUE, randomly draw the cardinality of top features (default FALSE).
 #' @param relation     feature selection criterion: \code{"Pearson"} or \code{"MI"}.
-#' @param Weight_Scheme observation weighting: \code{"scale"} or \code{"robust"}.
+#' @param weight_scheme observation weighting: \code{"scale"} or \code{"robust"}.
 #' @param type_of_svm  SVM type: \code{"C-classification"} uses the cost parameter
-#'   \code{cost_C}; \code{"nu-classification"} uses \code{cost_nu} (fraction of
+#'   \code{cost_c}; \code{"nu-classification"} uses \code{cost_nu} (fraction of
 #'   margin errors/support vectors, in (0, 1]).
-#' @param cost_C       SVM cost parameter C; used when
+#' @param cost_c       SVM cost parameter C; used when
 #'   \code{type_of_svm = "C-classification"} (default 1).
 #' @param cost_nu      nu parameter; used when
 #'   \code{type_of_svm = "nu-classification"} (default 0.5).
@@ -556,13 +626,13 @@ TORS <- function(Covariates, y = NULL,
                  minleaf       = round(nmin / 3),
                  cp            = 0.01,
                  n_perc        = 1,
-                 n_topCor      = 2,
+                 n_top_cor      = 2,
                  rf_var        = NULL,
                  rand_ntopcor  = FALSE,
                  relation      = "Pearson",
-                 Weight_Scheme = "scale",
+                 weight_scheme = "scale",
                  type_of_svm   = "C-classification",
-                 cost_C        = 1,
+                 cost_c        = 1,
                  cost_nu       = 0.5,
                  tolerance     = 0.001) {
 
@@ -577,6 +647,7 @@ TORS <- function(Covariates, y = NULL,
     Covariates <- mf[, -1L, drop = FALSE]
   }
 
+  .sword_validate(Covariates, y)
   enc   <- .sword_encode_covariates(Covariates)
   x_mat <- enc$mat
   if (is.null(rf_var)) rf_var <- ncol(x_mat)
@@ -588,14 +659,14 @@ TORS <- function(Covariates, y = NULL,
     minleaf           = minleaf,
     cp                = cp,
     n_perc            = n_perc,
-    n_topCor          = n_topCor,
+    n_top_cor          = n_top_cor,
     original_deviance = .sword_deviance(y),
     rf_var            = rf_var,
     rand_ntopcor      = rand_ntopcor,
     relation          = relation,
-    Weight_Scheme     = Weight_Scheme,
+    weight_scheme     = weight_scheme,
     type_of_svm       = type_of_svm,
-    cost_C            = cost_C,
+    cost_c            = cost_c,
     cost_nu           = cost_nu,
     tolerance         = tolerance
   )
@@ -604,11 +675,11 @@ TORS <- function(Covariates, y = NULL,
     p             = ncol(x_mat),
     nmin          = nmin,
     minleaf       = minleaf,
-    n_topCor      = n_topCor,
+    n_top_cor      = n_top_cor,
     rf_var        = rf_var,
     rand_ntopcor  = rand_ntopcor,
     relation      = relation,
-    Weight_Scheme = Weight_Scheme
+    weight_scheme = weight_scheme
   )
   tree$terms    <- terms_obj
   tree$encoding <- if (is.null(enc$enc_frm)) NULL else enc[c("enc_frm", "contrasts", "fac_lvls", "enc_assign", "enc_var_nms")]
@@ -622,7 +693,7 @@ TORS <- function(Covariates, y = NULL,
 #' a random forest of TORS oblique regression trees. Each tree is trained on a
 #' bootstrap sample; diversity is further increased by random predictor subspacing
 #' and optional randomisation of the number of features per split. Out-of-bag
-#' (OOB) predictions and metrics are computed when \code{OOB = TRUE}. Parallel
+#' (OOB) predictions and metrics are computed when \code{oob = TRUE}. Parallel
 #' fitting is supported via \code{furrr} when the caller sets a \code{future}
 #' plan before invoking \code{SWORD}.
 #'
@@ -635,20 +706,20 @@ TORS <- function(Covariates, y = NULL,
 #' @param cp           complexity parameter (default 0). Unlike \code{\link{TORS}},
 #'   forests use \code{cp = 0} (full trees) by design: bootstrap sampling provides
 #'   regularisation and unpruned trees maximise diversity.
-#' @param n_topCor     top-correlated features per split (default 2).
-#' @param m            number of trees (default 10).
+#' @param n_top_cor     top-correlated features per split (default 2).
+#' @param m            number of trees (default 100).
 #' @param rf_var       features sub-sampled per split (default ncol(Covariates)).
 #' @param rand_ntopcor randomly draw top-feature cardinality (default TRUE).
 #' @param relation     \code{"Pearson"} or \code{"MI"}.
-#' @param Weight_Scheme \code{"scale"} or \code{"robust"}.
-#' @param type_of_svm  SVM type: \code{"C-classification"} uses \code{cost_C};
+#' @param weight_scheme \code{"scale"} or \code{"robust"}.
+#' @param type_of_svm  SVM type: \code{"C-classification"} uses \code{cost_c};
 #'   \code{"nu-classification"} uses \code{cost_nu} (default \code{"C-classification"}).
-#' @param cost_C       SVM cost parameter C; used when
+#' @param cost_c       SVM cost parameter C; used when
 #'   \code{type_of_svm = "C-classification"} (default 1).
 #' @param cost_nu      nu parameter; used when
 #'   \code{type_of_svm = "nu-classification"} (default 0.5).
 #' @param tolerance    convergence tolerance for the C++ solver (default 0.001).
-#' @param seed_BS      integer seed offset for bootstrap samples (default 25).
+#' @param seed_bs      integer seed offset for bootstrap samples (default 25).
 #' @param parallel     if TRUE, fit trees in parallel via \code{furrr::future_map}
 #'                     (default FALSE). Set a \code{future} plan before calling.
 #' @param chunk        if TRUE, process trees in chunks (default FALSE).
@@ -657,9 +728,33 @@ TORS <- function(Covariates, y = NULL,
 #'   \code{n_chunks} when \code{chunk = TRUE} and \code{n_chunks = NULL}
 #'   (default 1). The actual parallelism is controlled by the \code{future}
 #'   plan set by the caller.
-#' @param OOB          if TRUE, compute OOB predictions and metrics (default TRUE).
+#' @param oob          if TRUE, compute OOB predictions and metrics (default TRUE).
 #' @param verbose      if TRUE, print tree index during sequential fitting (default FALSE).
-#' @param timeout_tree max seconds per tree; NULL = no limit (default 300).
+#' @param timeout_tree max seconds per tree; NULL = no limit (default 300). Trees
+#'   that exceed the limit are skipped and excluded from aggregation; the count
+#'   of skipped trees is stored in \code{object$n_skipped} and printed by
+#'   \code{\link{print.sword_flat}}.
+#'
+#' @details
+#' \strong{Split threshold.} SWORD always uses \code{n_perc = 1} (median
+#' dichotomisation) for all trees. This is a deliberate design choice: median
+#' splits are faster and, combined with bootstrap sampling and random-\eqn{\gamma}
+#' selection, provide sufficient diversity without the overhead of a quantile
+#' search. Users who require multi-threshold splits should use \code{\link{TORS}}
+#' directly with \code{n_perc > 1}.
+#'
+#' \strong{Reproducibility.} SWORD controls reproducibility through \code{seed_bs}
+#' rather than the caller's ambient RNG. Internally, bootstrap sample \eqn{i} is
+#' drawn with \code{set.seed(i + seed_bs)}, and the caller's \code{.Random.seed}
+#' is restored on exit. This means two calls with the same \code{seed_bs} always
+#' produce identical forests regardless of any outer \code{set.seed()}. To obtain
+#' a different forest, change \code{seed_bs}.
+#'
+#' \strong{Missing values.} The formula interface applies \code{na.omit} to the
+#' model frame. The data.frame interface expects complete cases; rows with
+#' \code{NA} in \code{Covariates} or \code{y} trigger an error with a count of
+#' the affected rows. Use \code{\link[stats]{na.omit}} or
+#' \code{\link[stats]{complete.cases}} to pre-clean the data if needed.
 #'
 #' @return An object of class \code{"sword_flat"}.
 #' @references
@@ -682,7 +777,7 @@ TORS <- function(Covariates, y = NULL,
 #' X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
 #'                 dimnames = list(NULL, paste0("x", 1:5))))
 #' y <- X$x1 * 2 - X$x2 + rnorm(150)
-#' forest <- SWORD(X, y, m = 10, OOB = TRUE, verbose = FALSE)
+#' forest <- SWORD(X, y, m = 10, oob = TRUE, verbose = FALSE)
 #' print(forest)
 #'
 #' # formula interface
@@ -696,22 +791,22 @@ SWORD <- function(
     nmin          = 5,
     minleaf       = 2,
     cp            = 0.0,
-    n_topCor      = 2,
-    m             = 10,
+    n_top_cor      = 2,
+    m             = 100,
     rf_var        = NULL,
     rand_ntopcor  = TRUE,
     relation      = "Pearson",
-    Weight_Scheme = "scale",
+    weight_scheme = "scale",
     type_of_svm   = "C-classification",
-    cost_C        = 1,
+    cost_c        = 1,
     cost_nu       = 0.5,
     tolerance     = 0.001,
-    seed_BS       = 25,
+    seed_bs       = 25,
     parallel      = FALSE,
     chunk         = FALSE,
     n_chunks      = NULL,
     n_workers     = 1,
-    OOB           = TRUE,
+    oob           = TRUE,
     verbose       = FALSE,
     timeout_tree  = 300
 ) {
@@ -727,6 +822,7 @@ SWORD <- function(
     Covariates <- mf[, -1L, drop = FALSE]
   }
 
+  .sword_validate(Covariates, y)
   enc           <- .sword_encode_covariates(Covariates)
   Covariates    <- as.data.frame(enc$mat)
   feature_names <- colnames(Covariates)
@@ -738,11 +834,11 @@ SWORD <- function(
     p             = length(feature_names),
     m             = m,
     rf_var        = rf_var,
-    n_topCor      = n_topCor,
+    n_top_cor      = n_top_cor,
     rand_ntopcor  = rand_ntopcor,
     minleaf       = minleaf,
     relation      = relation,
-    Weight_Scheme = Weight_Scheme
+    weight_scheme = weight_scheme
   )
 
   rng_state <- if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE))
@@ -757,11 +853,11 @@ SWORD <- function(
   }, add = TRUE)
 
   index_list <- lapply(seq_len(m), function(i) {
-    set.seed(i + seed_BS)
+    set.seed(i + seed_bs)
     boot_idx <- sample(n, n, replace = TRUE)
     list(boot = boot_idx,
          oob  = setdiff(seq_len(n), boot_idx),
-         seed = i + seed_BS)
+         seed = i + seed_bs)
   })
 
   build_tree <- function(idx) {
@@ -778,10 +874,10 @@ SWORD <- function(
       res <- TORS(
         baggingData, y_bagging,
         nmin = nmin, minleaf = minleaf, cp = cp,
-        n_perc = 1L, n_topCor = n_topCor,
+        n_perc = 1L, n_top_cor = n_top_cor,
         rf_var = rf_var, rand_ntopcor = rand_ntopcor,
-        relation = relation, Weight_Scheme = Weight_Scheme,
-        type_of_svm = type_of_svm, cost_C = cost_C, cost_nu = cost_nu,
+        relation = relation, weight_scheme = weight_scheme,
+        type_of_svm = type_of_svm, cost_c = cost_c, cost_nu = cost_nu,
         tolerance = tolerance
       )
       if (!is.null(timeout_tree)) setTimeLimit(elapsed = Inf, transient = FALSE)
@@ -803,7 +899,7 @@ SWORD <- function(
 
     oob_preds <- rep(NA_real_, n)
     t_oob     <- 0
-    if (OOB && length(idx$oob) > 0L) {
+    if (oob && length(idx$oob) > 0L) {
       t1                 <- proc.time()
       oob_preds[idx$oob] <- predict(tree, oobData)
       t_oob              <- as.numeric((proc.time() - t1)[["elapsed"]])
@@ -868,7 +964,13 @@ SWORD <- function(
     # Print messages captured inside workers (message() is unreliable in workers)
     for (msg_txt in Filter(Negate(is.null), lapply(results, `[[`, "msg")))
       message(msg_txt)
-    if (n_skipped > 0L) message("  Skipped trees: ", n_skipped, " / ", m)
+    if (n_skipped > 0L) {
+    message("  Skipped trees: ", n_skipped, " / ", m)
+    if (n_skipped / m >= 0.1)
+      warning(n_skipped, " / ", m, " trees were skipped (timeout or error). ",
+              "Consider increasing 'timeout_tree' or reducing data complexity.",
+              call. = FALSE)
+  }
 
     treeList  <- lapply(results[!skipped], `[[`, "tree")
     time_tree <- vapply(results, `[[`, numeric(1L), "time_tree")
@@ -877,21 +979,21 @@ SWORD <- function(
     enc_out <- if (is.null(enc$enc_frm)) NULL else
       enc[c("enc_frm", "contrasts", "fac_lvls", "enc_assign", "enc_var_nms")]
 
-    if (OOB && any(!skipped)) {
-      # Build n x m OOB matrix (all trees, skipped trees are all-NA columns)
-      OOB_matrix_full <- do.call(cbind, lapply(results, `[[`, "oob_preds"))
+    if (oob && any(!skipped)) {
+      # Build n x m oob matrix (all trees, skipped trees are all-NA columns)
+      oob_matrix_full <- do.call(cbind, lapply(results, `[[`, "oob_preds"))
 
-      # Overall OOB predictions: average over all trees where obs was OOB
-      oob_counts <- rowSums(!is.na(OOB_matrix_full))
-      oob_sums   <- rowSums(OOB_matrix_full, na.rm = TRUE)
+      # Overall oob predictions: average over all trees where obs was oob
+      oob_counts <- rowSums(!is.na(oob_matrix_full))
+      oob_sums   <- rowSums(oob_matrix_full, na.rm = TRUE)
       final_oob  <- ifelse(oob_counts > 0L, oob_sums / oob_counts, NA_real_)
 
       # Convergence curve: use only valid (non-skipped) columns, in submission order
-      valid_cols <- colSums(!is.na(OOB_matrix_full)) > 0L
-      OOB_matrix <- OOB_matrix_full[, valid_cols, drop = FALSE]
-      m_valid    <- ncol(OOB_matrix)
+      valid_cols <- colSums(!is.na(oob_matrix_full)) > 0L
+      oob_matrix <- oob_matrix_full[, valid_cols, drop = FALSE]
+      m_valid    <- ncol(oob_matrix)
       oob_errors <- vapply(seq_len(m_valid), function(k) {
-        partial  <- OOB_matrix[, seq_len(k), drop = FALSE]
+        partial  <- oob_matrix[, seq_len(k), drop = FALSE]
         row_mean <- rowSums(partial, na.rm = TRUE) / rowSums(!is.na(partial))
         mean((row_mean - y)^2, na.rm = TRUE)
       }, numeric(1L))
@@ -903,12 +1005,13 @@ SWORD <- function(
         call_params         = call_params,
         terms               = terms_obj,
         encoding            = enc_out,
+        y_train             = y,
         oob_predictions     = final_oob,
         MSE                 = mse_oob,
         RMSE                = sqrt(mse_oob),
         MAE                 = mean(abs(final_oob - y), na.rm = TRUE),
         Rsquared            = cor(final_oob, y, use = "complete.obs")^2,
-        OOB_matrix          = OOB_matrix,
+        oob_matrix          = oob_matrix,
         oob_errors_per_iter = oob_errors,
         time_tree           = time_tree,
         time_oob            = time_oob,
@@ -938,7 +1041,7 @@ SWORD <- function(
 
   oob_sum    <- rep(0.0, n)
   oob_counts <- rep(0L,  n)
-  OOB_matrix <- matrix(NA_real_, nrow = n, ncol = m)
+  oob_matrix <- matrix(NA_real_, nrow = n, ncol = m)
 
   for (i in seq_len(m)) {
     if (verbose) message(i)
@@ -957,10 +1060,10 @@ SWORD <- function(
       res <- TORS(
         baggingData, y_bagging,
         nmin = nmin, minleaf = minleaf, cp = cp,
-        n_perc = 1L, n_topCor = n_topCor,
+        n_perc = 1L, n_top_cor = n_top_cor,
         rf_var = rf_var, rand_ntopcor = rand_ntopcor,
-        relation = relation, Weight_Scheme = Weight_Scheme,
-        type_of_svm = type_of_svm, cost_C = cost_C, cost_nu = cost_nu,
+        relation = relation, weight_scheme = weight_scheme,
+        type_of_svm = type_of_svm, cost_c = cost_c, cost_nu = cost_nu,
         tolerance = tolerance
       )
       if (!is.null(timeout_tree)) setTimeLimit(elapsed = Inf, transient = FALSE)
@@ -980,23 +1083,29 @@ SWORD <- function(
 
     treeList[[i]] <- tree
 
-    if (OOB && length(oob_idx) > 0L) {
+    if (oob && length(oob_idx) > 0L) {
       t1              <- proc.time()
       oob_preds       <- predict(tree, oobData)
       time_oob[i]     <- as.numeric((proc.time() - t1)[["elapsed"]])
       oob_sum[oob_idx]       <- oob_sum[oob_idx]    + oob_preds
       oob_counts[oob_idx]    <- oob_counts[oob_idx] + 1L
-      OOB_matrix[oob_idx, i] <- oob_preds
+      oob_matrix[oob_idx, i] <- oob_preds
     } else {
       time_oob[i] <- 0
     }
   }
 
-  if (n_skipped > 0L) message("  Skipped trees: ", n_skipped, " / ", m)
+  if (n_skipped > 0L) {
+    message("  Skipped trees: ", n_skipped, " / ", m)
+    if (n_skipped / m >= 0.1)
+      warning(n_skipped, " / ", m, " trees were skipped (timeout or error). ",
+              "Consider increasing 'timeout_tree' or reducing data complexity.",
+              call. = FALSE)
+  }
 
   treeList   <- Filter(Negate(is.null), treeList)
-  valid_cols <- colSums(!is.na(OOB_matrix)) > 0L
-  OOB_matrix <- OOB_matrix[, valid_cols, drop = FALSE]
+  valid_cols <- colSums(!is.na(oob_matrix)) > 0L
+  oob_matrix <- oob_matrix[, valid_cols, drop = FALSE]
 
   base_out <- list(
     trees         = treeList,
@@ -1009,12 +1118,12 @@ SWORD <- function(
     n_skipped     = n_skipped
   )
 
-  if (OOB && ncol(OOB_matrix) > 0L) {
+  if (oob && ncol(oob_matrix) > 0L) {
     final_oob <- ifelse(oob_counts > 0L, oob_sum / oob_counts, NA_real_)
 
-    m_valid    <- ncol(OOB_matrix)
+    m_valid    <- ncol(oob_matrix)
     oob_errors <- vapply(seq_len(m_valid), function(k) {
-      partial  <- OOB_matrix[, seq_len(k), drop = FALSE]
+      partial  <- oob_matrix[, seq_len(k), drop = FALSE]
       row_mean <- rowSums(partial, na.rm = TRUE) / rowSums(!is.na(partial))
       mean((row_mean - y)^2, na.rm = TRUE)
     }, numeric(1L))
@@ -1023,12 +1132,13 @@ SWORD <- function(
 
     return(structure(
       c(base_out, list(
+        y_train             = y,
         oob_predictions     = final_oob,
         MSE                 = mse_oob,
         RMSE                = sqrt(mse_oob),
         MAE                 = mean(abs(final_oob - y), na.rm = TRUE),
         Rsquared            = cor(final_oob, y, use = "complete.obs")^2,
-        OOB_matrix          = OOB_matrix,
+        oob_matrix          = oob_matrix,
         oob_errors_per_iter = oob_errors
       )),
       class = "sword_flat"
@@ -1130,10 +1240,10 @@ print.tors_flat <- function(x, ...) {
   }
   if (!is.null(cp)) {
     topcor_str <- if (isTRUE(cp$rand_ntopcor))
-      sprintf("random [2, %d]", cp$rf_var) else as.character(cp$n_topCor)
+      sprintf("random [2, %d]", cp$rf_var) else as.character(cp$n_top_cor)
     cat(sprintf("%*s: %s\n", lbl, "Top-correlated feats", topcor_str))
     cat(sprintf("%*s: %s\n", lbl, "Correlation",          cp$relation))
-    cat(sprintf("%*s: %s\n", lbl, "Weight scheme",        cp$Weight_Scheme))
+    cat(sprintf("%*s: %s\n", lbl, "Weight scheme",        cp$weight_scheme))
   }
   cat("\n-----------------------------------------\n")
   invisible(x)
@@ -1156,10 +1266,10 @@ summary.tors_flat <- function(object, ...) {
     cat(sprintf("%*s: %d\n", lbl, "N observations",      cp$n))
     cat(sprintf("%*s: %d\n", lbl, "N predictors",        cp$p))
     topcor_str <- if (isTRUE(cp$rand_ntopcor))
-      sprintf("random [2, %d]", cp$rf_var) else as.character(cp$n_topCor)
+      sprintf("random [2, %d]", cp$rf_var) else as.character(cp$n_top_cor)
     cat(sprintf("%*s: %s\n", lbl, "Top-correlated feats", topcor_str))
     cat(sprintf("%*s: %s\n", lbl, "Correlation",          cp$relation))
-    cat(sprintf("%*s: %s\n", lbl, "Weight scheme",        cp$Weight_Scheme))
+    cat(sprintf("%*s: %s\n", lbl, "Weight scheme",        cp$weight_scheme))
   }
 
   cat("\n")
@@ -1183,21 +1293,40 @@ summary.tors_flat <- function(object, ...) {
 
 #' Predict from a fitted SWORD forest
 #'
-#' @param object \code{sword_flat} object from \code{\link{SWORD}}.
-#' @param newdata data.frame of predictors.
+#' @param object   \code{sword_flat} object from \code{\link{SWORD}}.
+#' @param newdata  data.frame of predictors.
+#' @param aggregate Logical; if \code{TRUE} (default) return the ensemble mean.
+#'   If \code{FALSE} return an \eqn{n \times m} matrix of per-tree predictions.
+#' @param interval Character; \code{"none"} (default) or \code{"prediction"}.
+#'   When \code{"prediction"}, the function returns a three-column matrix with
+#'   columns \code{fit}, \code{lwr}, and \code{upr} built from the empirical
+#'   quantiles of the per-tree predictions.  Ignored when \code{aggregate = FALSE}.
+#' @param level Confidence level for the prediction interval (default \code{0.95}).
+#'   Ignored unless \code{interval = "prediction"}.
 #' @param ... ignored.
-#' @return Numeric vector of predictions.
+#' @return A numeric vector (default), an \eqn{n \times m} matrix
+#'   (\code{aggregate = FALSE}), or a three-column matrix
+#'   (\code{interval = "prediction"}).
 #' @examples
 #' \donttest{
 #' set.seed(1)
 #' X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
 #'                 dimnames = list(NULL, paste0("x", 1:5))))
 #' y <- X$x1 * 2 - X$x2 + rnorm(150)
-#' forest <- SWORD(X, y, m = 10, OOB = FALSE, verbose = FALSE)
+#' forest <- SWORD(X, y, m = 10, oob = FALSE, verbose = FALSE)
 #' preds  <- predict(forest, X[1:5, ])
+#' # Per-tree predictions matrix
+#' mat    <- predict(forest, X[1:5, ], aggregate = FALSE)
+#' # 95% prediction intervals
+#' pi95   <- predict(forest, X[1:5, ], interval = "prediction")
 #' }
 #' @export
-predict.sword_flat <- function(object, newdata, ...) {
+predict.sword_flat <- function(object, newdata,
+                               aggregate = TRUE,
+                               interval  = c("none", "prediction"),
+                               level     = 0.95,
+                               ...) {
+  interval <- match.arg(interval)
 
   # When trained with formula, strip response and align factor levels.
   if (!is.null(object$terms)) {
@@ -1219,9 +1348,19 @@ predict.sword_flat <- function(object, newdata, ...) {
   pred_mat <- vapply(object$trees,
                      function(tree) predict(tree, newdata),
                      numeric(nrow(newdata)))
-  # vapply returns a vector when nrow(newdata)==1; force to matrix so
-  # rowMeans always receives a 2-D array.
-  rowMeans(matrix(pred_mat, nrow = nrow(newdata)))
+  # Force to matrix (vapply drops dimension when nrow(newdata) == 1).
+  pred_mat <- matrix(pred_mat, nrow = nrow(newdata))
+
+  if (!aggregate) return(pred_mat)
+
+  fit <- rowMeans(pred_mat)
+
+  if (interval == "none") return(fit)
+
+  alpha <- (1 - level) / 2
+  lwr   <- apply(pred_mat, 1L, stats::quantile, probs = alpha,       names = FALSE)
+  upr   <- apply(pred_mat, 1L, stats::quantile, probs = 1 - alpha,   names = FALSE)
+  cbind(fit = fit, lwr = lwr, upr = upr)
 }
 
 #' @rdname SWORD
@@ -1246,7 +1385,7 @@ print.sword_flat <- function(x, ...) {
   if (!is.null(cp)) {
     cat(sprintf("%*s: %d\n",   lbl, "Predictors per split", cp$rf_var))
     topcor_str <- if (isTRUE(cp$rand_ntopcor))
-      sprintf("random [2, %d]", cp$rf_var) else as.character(cp$n_topCor)
+      sprintf("random [2, %d]", cp$rf_var) else as.character(cp$n_top_cor)
     cat(sprintf("%*s: %s\n",   lbl, "Top-correlated feats", topcor_str))
   }
   if (!is.na(avg_leaves))
@@ -1258,7 +1397,7 @@ print.sword_flat <- function(x, ...) {
     cat(sprintf("%*s: %.4f / %.4f\n", lbl, "OOB stat value", x$RMSE, x$Rsquared))
   }
   if (!is.null(cp)) {
-    cat(sprintf("%*s: %s\n",   lbl, "Weight scheme",        cp$Weight_Scheme))
+    cat(sprintf("%*s: %s\n",   lbl, "Weight scheme",        cp$weight_scheme))
     cat(sprintf("%*s: %s\n",   lbl, "Correlation",          cp$relation))
   }
   if (!is.null(x$n_skipped) && x$n_skipped > 0L)
@@ -1289,10 +1428,10 @@ summary.sword_flat <- function(object, ...) {
   if (!is.null(cp)) {
     cat(sprintf("%*s: %d\n", lbl, "Predictors per split", cp$rf_var))
     topcor_str <- if (isTRUE(cp$rand_ntopcor))
-      sprintf("random [2, %d]", cp$rf_var) else as.character(cp$n_topCor)
+      sprintf("random [2, %d]", cp$rf_var) else as.character(cp$n_top_cor)
     cat(sprintf("%*s: %s\n", lbl, "Top-correlated feats", topcor_str))
     cat(sprintf("%*s: %s\n", lbl, "Correlation",          cp$relation))
-    cat(sprintf("%*s: %s\n", lbl, "Weight scheme",        cp$Weight_Scheme))
+    cat(sprintf("%*s: %s\n", lbl, "Weight scheme",        cp$weight_scheme))
   }
 
   if (n_trees > 0L) {
@@ -1323,6 +1462,99 @@ summary.sword_flat <- function(object, ...) {
 
 
 # ==============================================================================
+# nobs / fitted / residuals
+# ==============================================================================
+
+#' Number of observations used to fit a TORS tree
+#'
+#' @param object \code{tors_flat} object from \code{\link{TORS}}.
+#' @param ... ignored.
+#' @return Integer scalar.
+#' @examples
+#' set.seed(1)
+#' X <- data.frame(matrix(rnorm(100 * 3), 100, 3,
+#'                 dimnames = list(NULL, paste0("x", 1:3))))
+#' y <- X$x1 + rnorm(100)
+#' tree <- TORS(X, y)
+#' nobs(tree)
+#' @importFrom stats nobs
+#' @export
+nobs.tors_flat <- function(object, ...) object$call_params$n
+
+#' Number of observations used to fit a SWORD forest
+#'
+#' @param object \code{sword_flat} object from \code{\link{SWORD}}.
+#' @param ... ignored.
+#' @return Integer scalar.
+#' @examples
+#' \donttest{
+#' set.seed(1)
+#' X <- data.frame(matrix(rnorm(100 * 3), 100, 3,
+#'                 dimnames = list(NULL, paste0("x", 1:3))))
+#' y <- X$x1 + rnorm(100)
+#' forest <- SWORD(X, y, m = 10, verbose = FALSE)
+#' nobs(forest)
+#' }
+#' @importFrom stats nobs
+#' @export
+nobs.sword_flat <- function(object, ...) object$call_params$n
+
+#' Out-of-bag fitted values from a SWORD forest
+#'
+#' Returns the out-of-bag (OOB) predictions accumulated during forest fitting.
+#' Only available when the forest was fitted with \code{oob = TRUE}.
+#'
+#' @param object \code{sword_flat} object from \code{\link{SWORD}}.
+#' @param ... ignored.
+#' @return Named numeric vector of OOB predictions (one per training observation),
+#'   or \code{NULL} with a message if \code{oob = FALSE} was used.
+#' @examples
+#' \donttest{
+#' set.seed(1)
+#' X <- data.frame(matrix(rnorm(100 * 3), 100, 3,
+#'                 dimnames = list(NULL, paste0("x", 1:3))))
+#' y <- X$x1 + rnorm(100)
+#' forest <- SWORD(X, y, m = 10, oob = TRUE, verbose = FALSE)
+#' head(fitted(forest))
+#' }
+#' @importFrom stats fitted
+#' @export
+fitted.sword_flat <- function(object, ...) {
+  if (is.null(object$oob_predictions))
+    message("OOB predictions not available: refit with oob = TRUE.")
+  object$oob_predictions
+}
+
+#' Out-of-bag residuals from a SWORD forest
+#'
+#' Returns \code{y_train - oob_predictions} for each training observation.
+#' Only available when the forest was fitted with \code{oob = TRUE}.
+#'
+#' @param object \code{sword_flat} object from \code{\link{SWORD}}.
+#' @param ... ignored.
+#' @return Numeric vector of OOB residuals (one per training observation),
+#'   or \code{NULL} with a message if \code{oob = FALSE} was used.
+#' @examples
+#' \donttest{
+#' set.seed(1)
+#' X <- data.frame(matrix(rnorm(100 * 3), 100, 3,
+#'                 dimnames = list(NULL, paste0("x", 1:3))))
+#' y <- X$x1 + rnorm(100)
+#' forest <- SWORD(X, y, m = 10, oob = TRUE, verbose = FALSE)
+#' head(residuals(forest))
+#' }
+#' @importFrom stats residuals
+#' @export
+residuals.sword_flat <- function(object, ...) {
+  if (is.null(object$oob_predictions) || is.null(object$y_train)) {
+    message("OOB residuals not available: refit with oob = TRUE.")
+    return(NULL)
+  }
+  object$y_train - object$oob_predictions
+}
+
+
+# ==============================================================================
 # VARIABLE IMPORTANCE
 # ==============================================================================
 
@@ -1349,7 +1581,7 @@ summary.sword_flat <- function(object, ...) {
 #' X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
 #'                 dimnames = list(NULL, paste0("x", 1:5))))
 #' y <- X$x1 * 2 - X$x2 + rnorm(150)
-#' forest <- SWORD(X, y, m = 10, OOB = FALSE, verbose = FALSE)
+#' forest <- SWORD(X, y, m = 10, oob = FALSE, verbose = FALSE)
 #' VI_SWORD(forest)
 #' }
 #' @export
@@ -1625,7 +1857,7 @@ plot_tors_visnet <- function(tree, use_scaled = TRUE, top_k = 4L, digits = 3L) {
 .plot_oob_convergence <- function(forest) {
   errs <- forest$oob_errors_per_iter
   if (is.null(errs) || length(errs) == 0L)
-    stop("No OOB errors found. Fit SWORD with OOB = TRUE.")
+    stop("No OOB errors found. Fit SWORD with oob = TRUE.")
 
   m      <- length(errs)
   i_best <- which.min(errs)
@@ -1680,7 +1912,7 @@ plot.tors_flat <- function(x, use_scaled = TRUE, top_k = 4L, digits = 3L, ...) {
 #'
 #' @param x     \code{sword_flat} object from \code{\link{SWORD}}.
 #' @param which \code{"oob"} for OOB MSE convergence curve (requires
-#'   \code{OOB = TRUE} at fit time); \code{"vi"} for variable importance
+#'   \code{oob = TRUE} at fit time); \code{"vi"} for variable importance
 #'   barplot.
 #' @param top_n maximum variables shown when \code{which = "vi"} (default 20).
 #' @param ...   further arguments passed to \code{\link{plot_vi_sword}} when
@@ -1694,7 +1926,7 @@ plot.tors_flat <- function(x, use_scaled = TRUE, top_k = 4L, digits = 3L, ...) {
 #' X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
 #'                 dimnames = list(NULL, paste0("x", 1:5))))
 #' y <- X$x1 * 2 - X$x2 + rnorm(150)
-#' forest <- SWORD(X, y, m = 10, OOB = TRUE, verbose = FALSE)
+#' forest <- SWORD(X, y, m = 10, oob = TRUE, verbose = FALSE)
 #' plot(forest, which = "oob")
 #' plot(forest, which = "vi")
 #' }
@@ -1728,7 +1960,7 @@ plot.sword_flat <- function(x, which = c("oob", "vi"), top_n = 20L, ...) {
 #' X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
 #'                 dimnames = list(NULL, paste0("x", 1:5))))
 #' y <- X$x1 * 2 - X$x2 + rnorm(150)
-#' forest <- SWORD(X, y, m = 10, OOB = FALSE, verbose = FALSE)
+#' forest <- SWORD(X, y, m = 10, oob = FALSE, verbose = FALSE)
 #' plot_vi_sword(forest)
 #' }
 #' @export
@@ -1766,9 +1998,9 @@ plot_vi_sword <- function(forest, top_n = 20L, col = "#3498db",
 #'
 #' Plots out-of-bag predictions against the true response values with an
 #' identity line and RMSE / R\eqn{^2} annotation. Requires that the forest was
-#' fit with \code{OOB = TRUE}.
+#' fit with \code{oob = TRUE}.
 #'
-#' @param forest \code{sword_flat} object fit with \code{OOB = TRUE}.
+#' @param forest \code{sword_flat} object fit with \code{oob = TRUE}.
 #' @param y      numeric vector of true response values in the same order as
 #'               the training data passed to \code{\link{SWORD}}.
 #' @param main   plot title (default \code{"SWORD - OOB fit"}).
@@ -1782,14 +2014,14 @@ plot_vi_sword <- function(forest, top_n = 20L, col = "#3498db",
 #' X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
 #'                 dimnames = list(NULL, paste0("x", 1:5))))
 #' y <- X$x1 * 2 - X$x2 + rnorm(150)
-#' forest <- SWORD(X, y, m = 10, OOB = TRUE, verbose = FALSE)
+#' forest <- SWORD(X, y, m = 10, oob = TRUE, verbose = FALSE)
 #' plot_oob_fit(forest, y)
 #' }
 #' @export
 plot_oob_fit <- function(forest, y, main = "SWORD \u2014 OOB fit", ...) {
   yhat <- forest$oob_predictions
   if (is.null(yhat))
-    stop("No OOB predictions found. Fit SWORD with OOB = TRUE.")
+    stop("No OOB predictions found. Fit SWORD with oob = TRUE.")
 
   keep <- !is.na(yhat)
   y_k  <- y[keep]
@@ -1842,7 +2074,7 @@ plot_oob_fit <- function(forest, y, main = "SWORD \u2014 OOB fit", ...) {
 #' X <- data.frame(matrix(rnorm(150 * 5), 150, 5,
 #'                 dimnames = list(NULL, paste0("x", 1:5))))
 #' y <- X$x1 * 2 - X$x2 + rnorm(150)
-#' forest <- SWORD(X, y, m = 10, OOB = FALSE, verbose = FALSE)
+#' forest <- SWORD(X, y, m = 10, oob = FALSE, verbose = FALSE)
 #' pdp_sword(forest, X, "x1")
 #' }
 #' @export
